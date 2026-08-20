@@ -1,0 +1,203 @@
+import { NextResponse } from "next/server";
+import { createClient } from "@/lib/supabase/server";
+import { isIncidentType, type IncidentType } from "@/lib/incident-type";
+
+const DEFAULT_LIMIT = 200;
+const MAX_LIMIT = 500;
+
+function distanceMeters(
+  first: { lat: number; lng: number },
+  second: { lat: number; lng: number },
+): number {
+  const earthRadiusMeters = 6_371_000;
+  const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
+  const deltaLat = toRadians(second.lat - first.lat);
+  const deltaLng = toRadians(second.lng - first.lng);
+  const a =
+    Math.sin(deltaLat / 2) ** 2 +
+    Math.cos(toRadians(first.lat)) *
+      Math.cos(toRadians(second.lat)) *
+      Math.sin(deltaLng / 2) ** 2;
+  return 2 * earthRadiusMeters * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+// Staff-only listing of Secure Signal incidents. Powers the admin/authority
+// dashboard table + map. Supports filtering by created_at date, status, type,
+// and a free-text search across id / fullname / phone.
+export async function GET(req: Request) {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "unauth" }, { status: 401 });
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role")
+    .eq("id", user.id)
+    .single();
+  if (!profile || !["admin", "authority"].includes(profile.role)) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+
+  const { searchParams } = new URL(req.url);
+  const date = searchParams.get("date"); // YYYY-MM-DD (UTC day boundary)
+  const from = searchParams.get("from"); // ISO timestamp
+  const to = searchParams.get("to"); // ISO timestamp
+  const status = searchParams.get("status");
+  const type = searchParams.get("type");
+  const q = (searchParams.get("q") ?? "").trim();
+
+  // New params
+  const sortBy = searchParams.get("sortBy") === "occurred_at" ? "occurred_at" : "created_at";
+  const order = searchParams.get("order") === "asc" ? "asc" : "desc";
+  const latParam = searchParams.get("lat");
+  const lngParam = searchParams.get("lng");
+  const radiusParam = searchParams.get("radius"); // meters
+  const hasLocationFilter = [latParam, lngParam, radiusParam].some((value) => value !== null);
+  const lat = Number(latParam);
+  const lng = Number(lngParam);
+  const radius = Number(radiusParam);
+
+  if (
+    hasLocationFilter &&
+    (!Number.isFinite(lat) ||
+      !Number.isFinite(lng) ||
+      !Number.isFinite(radius) ||
+      lat < -90 ||
+      lat > 90 ||
+      lng < -180 ||
+      lng > 180 ||
+      radius <= 0 ||
+      radius > 500_000)
+  ) {
+    return NextResponse.json({ error: "invalid location filter" }, { status: 400 });
+  }
+
+  const limitParam = Number.parseInt(searchParams.get("limit") ?? "", 10);
+  const limit = Math.min(
+    MAX_LIMIT,
+    Math.max(1, Number.isFinite(limitParam) ? limitParam : DEFAULT_LIMIT),
+  );
+
+  const buildQuery = (includeOccurredAt: boolean) => {
+    const incidentFields = includeOccurredAt
+      ? "id, occurred_at, created_at, status, read, incident_type, lat, lng, user_id, device_id, profiles!incidents_user_id_fkey(fullname, phone, profile_img)"
+      : "id, created_at, status, read, incident_type, lat, lng, user_id, device_id, profiles!incidents_user_id_fkey(fullname, phone, profile_img)";
+    const sortField = includeOccurredAt && sortBy === "occurred_at" ? "occurred_at" : "created_at";
+    let query = supabase
+      .from("incidents")
+      .select(incidentFields)
+      .order(sortField, { ascending: order === "asc" })
+      .limit(limit);
+
+    if (status === "received" || status === "reported" || status === "canceled") {
+      query = query.eq("status", status);
+    }
+    if (isIncidentType(type)) {
+      query = query.eq("incident_type", type as IncidentType);
+    }
+    if (date) {
+      // Treat the date as a UTC calendar day.
+      const start = `${date}T00:00:00.000Z`;
+      const end = `${date}T23:59:59.999Z`;
+      query = query.gte("created_at", start).lte("created_at", end);
+    } else {
+      if (from) query = query.gte("created_at", from);
+      if (to) query = query.lte("created_at", to);
+    }
+    return query;
+  };
+
+  let { data, error } = await buildQuery(true);
+  const missingOccurredAt = error?.message.includes("incidents.occurred_at");
+  if (error && missingOccurredAt) {
+    // Older deployments only have created_at. Keep the API response stable
+    // while the database migration is being rolled out.
+    ({ data, error } = await buildQuery(false));
+  }
+  if (error) {
+    const missingColumn = /column .*incidents\.\w+ does not exist/.test(error.message);
+    return NextResponse.json(
+      {
+        error: missingColumn
+          ? `${error.message}. This usually means the Supabase project is missing one or more migrations from supabase/migrations — run them in numeric order (0001 through 0010).`
+          : error.message,
+      },
+      { status: 500 },
+    );
+  }
+
+  type Row = {
+    id: string;
+    occurred_at?: string;
+    created_at: string;
+    status: "received" | "reported" | "canceled";
+    read: boolean;
+    incident_type: IncidentType | null;
+    lat: number | null;
+    lng: number | null;
+    user_id: string | null;
+    device_id: string | null;
+    profiles: { fullname: string; phone: string | null; profile_img: string | null } | null;
+  };
+
+  let rows = (data ?? []) as unknown as Row[];
+
+  if (q) {
+    const needle = q.toLowerCase();
+    rows = rows.filter((r) => {
+      return [r.id, r.profiles?.fullname ?? "", r.profiles?.phone ?? ""]
+        .join(" ")
+        .toLowerCase()
+        .includes(needle);
+    });
+  }
+
+  if (hasLocationFilter) {
+    const center = { lat, lng };
+    rows = rows.filter((row) => {
+      const point = row.lat !== null && row.lng !== null
+        ? { lat: row.lat, lng: row.lng }
+        : null;
+      return point !== null && distanceMeters(point, center) <= radius;
+    });
+  }
+
+  // Do not depend on PostgREST's embedded devices relationship here. Some
+  // projects have the FK but do not expose it in the schema cache yet.
+  const deviceIds = Array.from(
+    new Set(rows.map((row) => row.device_id).filter((id): id is string => Boolean(id))),
+  );
+  const deviceUuidById = new Map<string, string>();
+  if (deviceIds.length > 0) {
+    const { data: devices, error: devicesError } = await supabase
+      .from("devices")
+      .select("id, device_uuid")
+      .in("id", deviceIds);
+    if (devicesError) {
+      console.error("Failed to enrich incidents with device UUIDs:", devicesError);
+    } else {
+      for (const device of devices ?? []) {
+        deviceUuidById.set(device.id, device.device_uuid);
+      }
+    }
+  }
+
+  const incidents = rows.map((r) => ({
+    id: r.id,
+    occurred_at: r.occurred_at ?? r.created_at,
+    created_at: r.created_at,
+    status: r.status,
+    read: r.read,
+    incident_type: r.incident_type ?? null,
+    lat: r.lat,
+    lng: r.lng,
+    user_id: r.user_id,
+    device_id: r.device_id,
+    user_name: r.profiles?.fullname ?? null,
+    user_phone: r.profiles?.phone ?? null,
+    user_profile_img: r.profiles?.profile_img ?? null,
+    device_uuid: r.device_id ? deviceUuidById.get(r.device_id) ?? null : null,
+  }));
+
+  return NextResponse.json({ incidents, total: incidents.length });
+}

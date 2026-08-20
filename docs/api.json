@@ -1,0 +1,304 @@
+{
+  "name": "Secure Signal Admin API",
+  "version": "0.1.0",
+  "description": "Next.js Route Handlers backing the Secure Signal admin/authority dashboard. All authenticated routes rely on Supabase SSR cookies — include the session cookie set by /login on every request.",
+  "baseUrl": "http://localhost:3000",
+  "authentication": {
+    "type": "supabase_cookie",
+    "notes": "Sign in via the web app or POST to /auth (Supabase hosted). The browser automatically attaches the sb-access-token cookie. Server-only routes verify it via createServerClient() and read role from public.profiles."
+  },
+  "commonErrors": {
+    "400": "Validation failed — body did not match the Zod schema.",
+    "401": "Unauthenticated — no Supabase session.",
+    "403": "Forbidden — signed in but role not allowed for this resource.",
+    "404": "Resource not found.",
+    "500": "Server or upstream (Supabase/Stripe/FCM) error. Body shape: { error: string }."
+  },
+  "endpoints": [
+    {
+      "method": "GET",
+      "path": "/api/auth/callback",
+      "description": "OAuth callback URL used by Supabase after email-link / OAuth sign in. Exchanges the `code` query param for a session cookie and redirects to `next` or `/`.",
+      "auth": "public",
+      "query": {
+        "code": "string (required) — Supabase auth code from the redirect URL",
+        "next": "string (optional) — path to redirect to after exchange, default `/`"
+      },
+      "responses": {
+        "302": "Redirect to origin + next (or /login?error=oauth on failure)"
+      }
+    },
+
+    {
+      "method": "GET",
+      "path": "/api/emergency-contact",
+      "description": "List the signed-in user's emergency contacts.",
+      "auth": "authenticated (self only)",
+      "responses": {
+        "200": { "data": "EmergencyContact[] (id, user_id, fullname, phone, created_at)" }
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/emergency-contact",
+      "description": "Add an emergency contact for the signed-in user.",
+      "auth": "authenticated",
+      "body": {
+        "fullname": "string (required, min 1)",
+        "phone": "string (required, min 5)"
+      },
+      "responses": {
+        "201": { "data": "EmergencyContact" }
+      }
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/emergency-contact/{id}",
+      "description": "Update one of the signed-in user's emergency contacts.",
+      "auth": "authenticated (owner only)",
+      "pathParams": { "id": "uuid" },
+      "body": {
+        "fullname": "string (optional, min 1)",
+        "phone": "string (optional, min 5)"
+      },
+      "responses": {
+        "200": { "data": "EmergencyContact" }
+      }
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/emergency-contact/{id}",
+      "description": "Remove an emergency contact.",
+      "auth": "authenticated (owner only)",
+      "pathParams": { "id": "uuid" },
+      "responses": {
+        "200": { "ok": true }
+      }
+    },
+
+    {
+      "method": "POST",
+      "path": "/api/incident",
+      "description": "Device-side incident ingestion. Writes an incident row with a PostGIS POINT location. Optionally links to a device via device_uuid.",
+      "auth": "public (device key recommended in v2 — currently RLS allows public insert)",
+      "body": {
+        "lng": "number (required, -180..180)",
+        "lat": "number (required, -90..90)",
+        "device_uuid": "string (optional) — looks up devices.device_uuid, attaches device_id"
+      },
+      "responses": {
+        "201": { "data": "Incident (id, location, user_id, device_id, status='received', read=false, occurred_at)" }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/incident",
+      "description": "List incidents. Optional date filter (YYYY-MM-DD, UTC). Returns up to 500 rows newest first.",
+      "auth": "staff (admin/authority) or owner — enforced by RLS",
+      "query": {
+        "date": "string (optional) — YYYY-MM-DD UTC; filters occurred_at to that day"
+      },
+      "responses": {
+        "200": { "data": "Incident[]" }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/incident/{id}",
+      "description": "Fetch a single incident.",
+      "auth": "staff or owner",
+      "pathParams": { "id": "uuid" },
+      "responses": {
+        "200": { "data": "Incident" },
+        "404": { "error": "not found" }
+      }
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/incident/{id}/status",
+      "description": "Transition an incident between `received` and `reported`. Marks the row read. Writes a `logs` entry.",
+      "auth": "admin or authority",
+      "pathParams": { "id": "uuid" },
+      "body": {
+        "status": "'received' | 'reported' (required)"
+      },
+      "responses": {
+        "200": { "data": "Incident (updated)" }
+      }
+    },
+
+    {
+      "method": "POST",
+      "path": "/api/ping",
+      "description": "Send a ping to a device. Inserts a `pings` row (status=sent) and best-effort FCM push using the most recent token in `notifications`.",
+      "auth": "admin or authority",
+      "body": {
+        "device_id": "uuid (required)"
+      },
+      "responses": {
+        "201": { "data": "Ping (id, device_id, ping_date, status='sent')" }
+      },
+      "sideEffects": [
+        "logs row: action='ping.sent', entity='device', entity_id=device_id"
+      ]
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/ping",
+      "description": "Device callback — marks a ping as `received`. Called by the device after processing the FCM push.",
+      "auth": "public (no session required for device)",
+      "body": {
+        "ping_id": "uuid (required)"
+      },
+      "responses": {
+        "200": { "data": "Ping (status='received')" }
+      }
+    },
+
+    {
+      "method": "POST",
+      "path": "/api/contact",
+      "description": "Public contact form submission. Stores a row in `contacts` for the admin Settings tab.",
+      "auth": "public",
+      "body": {
+        "name": "string (required, min 1)",
+        "email": "string (required, valid email)",
+        "message": "string (required, min 1, max 2000)"
+      },
+      "responses": {
+        "201": { "data": "ContactSubmission" }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/contact",
+      "description": "List the latest 100 contact submissions.",
+      "auth": "admin only",
+      "responses": {
+        "200": { "data": "ContactSubmission[]" }
+      }
+    },
+
+    {
+      "method": "POST",
+      "path": "/api/stripe/webhook",
+      "description": "Stripe webhook endpoint. Verifies signature with STRIPE_WEBHOOK_SECRET, upserts `subscriptions` rows, writes a logs entry.",
+      "auth": "Stripe (signature header)",
+      "headers": {
+        "stripe-signature": "string (required)"
+      },
+      "raw_body_required": true,
+      "handledEvents": [
+        "checkout.session.completed",
+        "customer.subscription.created",
+        "customer.subscription.updated",
+        "customer.subscription.deleted"
+      ],
+      "subscriptionMetadata": {
+        "supabase_user_id": "Required key in subscription.metadata so the webhook can attach the row to a profile."
+      },
+      "responses": {
+        "200": { "received": true },
+        "400": { "error": "missing sig | bad sig message" }
+      }
+    }
+  ],
+
+  "schemas": {
+    "EmergencyContact": {
+      "id": "uuid (pk)",
+      "user_id": "uuid (fk → profiles.id)",
+      "fullname": "string",
+      "phone": "string",
+      "created_at": "timestamptz"
+    },
+    "Incident": {
+      "id": "uuid (pk)",
+      "location": "geography(Point, 4326) — PostGIS; EWKT string in API responses, parse with regex /POINT\\(([-\\d.]+)\\s+([-\\d.]+)\\)/",
+      "user_id": "uuid | null (fk → profiles.id)",
+      "device_id": "uuid | null (fk → devices.id)",
+      "status": "'received' | 'reported'",
+      "read": "boolean",
+      "occurred_at": "timestamptz"
+    },
+    "Ping": {
+      "id": "uuid (pk)",
+      "device_id": "uuid (fk → devices.id)",
+      "ping_date": "timestamptz",
+      "status": "'sent' | 'received'"
+    },
+    "ContactSubmission": {
+      "id": "uuid (pk)",
+      "name": "string",
+      "email": "string",
+      "message": "string",
+      "created_at": "timestamptz"
+    },
+    "Subscription": {
+      "id": "uuid (pk)",
+      "user_id": "uuid (fk → profiles.id)",
+      "subscription_id": "string (Stripe sub id, unique)",
+      "status": "'active' | 'past_due' | 'canceled' | 'incomplete'",
+      "start": "timestamptz",
+      "end": "timestamptz | null",
+      "created_at": "timestamptz"
+    },
+    "Profile": {
+      "id": "uuid (pk, equals auth.users.id)",
+      "fullname": "string",
+      "phone": "string | null (unique)",
+      "role": "'rider' | 'admin' | 'authority'",
+      "created_at": "timestamptz"
+    },
+    "Device": {
+      "id": "uuid (pk)",
+      "device_uuid": "string (unique)",
+      "user_id": "uuid | null",
+      "ip": "string | null",
+      "last_seen": "timestamptz | null",
+      "created_at": "timestamptz"
+    },
+    "Notification": {
+      "id": "uuid (pk)",
+      "device_id": "uuid",
+      "device_firebase_id": "string (FCM token)",
+      "created_at": "timestamptz"
+    },
+    "Log": {
+      "id": "bigserial (pk)",
+      "actor": "uuid | null",
+      "action": "string",
+      "entity": "string | null",
+      "entity_id": "string | null",
+      "meta": "jsonb | null",
+      "created_at": "timestamptz"
+    }
+  },
+
+  "enums": {
+    "user_role": ["rider", "admin", "authority"],
+    "incident_status": ["received", "reported"],
+    "ping_status": ["sent", "received"],
+    "subscription_status": ["active", "past_due", "canceled", "incomplete"]
+  },
+
+  "roleMatrix": {
+    "rider": ["profile: read self", "settings: read/write self", "emergency_contact: CRUD self"],
+    "authority": ["incident: read all, update status", "ping: send, read", "monitor: read"],
+    "admin": [
+      "all authority powers",
+      "user: read all, change role",
+      "subscription: read all, write via Stripe webhook",
+      "contact: read submissions",
+      "settings (admin): read contact submissions"
+    ]
+  },
+
+  "notes": [
+    "RLS is the source of truth for row-level access. Route handlers also enforce role checks server-side.",
+    "Geolocation fields are PostGIS — when you see 'SRID=4326;POINT(lng lat)' in insert bodies, that is EWKT. Read responses stringify the same.",
+    "Stripe webhook requires the raw request body — Next.js route handlers receive it via req.text().",
+    "FCM uses firebase-admin (server-only). The web client config you provided earlier is NOT compatible with admin — paste the service account JSON to populate FIREBASE_PRIVATE_KEY.",
+    "Use `application/json` content-type on all write requests."
+  ]
+}

@@ -1,0 +1,84 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body {
+  height: 100%;
+}
+
+:root {
+  --font-display: "Space Grotesk", ui-sans-serif, sans-serif;
+  --font-body: "Inter", ui-sans-serif, sans-serif;
+  --font-data: "IBM Plex Mono", ui-monospace, monospace;
+
+  /* Light scheme (default). Values are "r g b" so Tailwind's opacity
+     modifiers (e.g. bg-primary/10) work — see tailwind.config.ts. */
+  --color-primary: 255 89 77;              /* BrandRed #FF594D */
+  --color-on-primary: 255 255 255;
+  --color-primary-container: 255 232 229;  /* #FFE8E5 */
+  --color-on-primary-container: 92 21 16;  /* #5C1510 */
+
+  --color-secondary: 22 41 74;             /* BrandNavy #16294A */
+  --color-on-secondary: 255 255 255;
+  --color-secondary-container: 220 227 239; /* #DCE3EF */
+  --color-on-secondary-container: 13 27 51; /* #0D1B33 */
+
+  --color-tertiary: 232 69 59;             /* BrandRedDark #E8453B */
+  --color-on-tertiary: 255 255 255;
+  --color-tertiary-container: 255 218 214; /* #FFDAD6 */
+  --color-on-tertiary-container: 92 21 16; /* #5C1510 */
+
+  --color-background: 248 249 250;         /* #F8F9FA */
+  --color-surface: 255 255 255;
+  --color-surface-variant: 238 241 245;    /* #EEF1F5 */
+  --color-outline: 217 222 231;            /* #D9DEE7 */
+
+  --color-text-primary: 23 32 51;          /* #172033 */
+  --color-text-secondary: 107 114 128;     /* #6B7280 */
+}
+
+.dark {
+  /* Dark scheme — navy is the foundation, not an inverted light theme. */
+  --color-primary: 255 112 102;            /* #FF7066 */
+  --color-on-primary: 92 21 16;            /* #5C1510 */
+  --color-primary-container: 143 41 34;    /* #8F2922 */
+  --color-on-primary-container: 255 232 229; /* #FFE8E5 */
+
+  --color-secondary: 184 197 218;          /* #B8C5DA */
+  --color-on-secondary: 22 41 74;          /* #16294A */
+  --color-secondary-container: 48 69 99;   /* #304563 */
+  --color-on-secondary-container: 220 227 239; /* #DCE3EF */
+
+  --color-tertiary: 255 138 128;           /* #FF8A80 */
+  --color-on-tertiary: 92 21 16;           /* #5C1510 */
+  --color-tertiary-container: 111 33 27;   /* #6F211B */
+  --color-on-tertiary-container: 255 218 214; /* #FFDAD6 */
+
+  --color-background: 13 27 51;            /* #0D1B33 */
+  --color-surface: 22 41 74;               /* #16294A */
+  --color-surface-variant: 32 54 91;       /* #20365B */
+  --color-outline: 74 91 117;              /* #4A5B75 */
+
+  --color-text-primary: 255 255 255;
+  --color-text-secondary: 184 194 209;     /* #B8C2D1 */
+}
+
+h1, h2, h3, h4 {
+  font-family: var(--font-display), sans-serif;
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

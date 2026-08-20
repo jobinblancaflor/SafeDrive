@@ -1,0 +1,48 @@
+Backend Admin:
+Node.js, Next.js, Tailwind, Supabase
+
+
+User roles:
+Rider
+Admin
+Authority
+
+Public Pages:
+login,signup,forgot password,reset password,FAQ,Terms of services, Privacy Policy, Error 404, 
+
+restricted page:
+profile, settings
+
+admin page:
+users tab - user list, user profile
+payments tab - payment list, payment details
+settings tab - 
+incident tab - incident list, when incident is click, redirect the user to monitor tag, 
+monitor tab - google map cluster, default display todays list of incident, date filtering, 
+ping - search input for device, ping button, google map
+
+authority tab
+incident tab
+monitor 
+ping
+
+
+CRUD APIs:
+Auth 
+Emergency Contact
+Incident 
+Ping
+Contact
+
+Database Tables:
+Users: fullname,salt,password,phone number,role
+Emergency Contact:fullname, phone number,user_id
+Incident:location,user,device_id,status[recieved,reported],read
+Ping: device_id,ping_date,status[sent,recieved]
+Contact:
+Subscriptions:user_id,subscription_id,status,start,end
+Logs
+Devices-,device_id,device_UUID,user_id,IP
+Notifications-device_id,device_firebase_id
+
+
