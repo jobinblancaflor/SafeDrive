@@ -8,6 +8,7 @@ import "@fontsource/inter/600.css";
 import "@fontsource/ibm-plex-mono/400.css";
 import "@fontsource/ibm-plex-mono/500.css";
 import "./globals.css";
+import { ChatWidget } from "@/components/chat/chat-widget";
 
 export const metadata: Metadata = {
   title: "Secure Signal Admin",
@@ -21,7 +22,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="antialiased bg-slate-50 text-slate-900 font-sans">{children}</body>
+      <body className="antialiased bg-slate-50 text-slate-900 font-sans">
+        {children}
+        <ChatWidget />
+      </body>
     </html>
   );
 }

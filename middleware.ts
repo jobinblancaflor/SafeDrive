@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient, type CookieOptions } from "@supabase/ssr";
 
 const PUBLIC_ROUTES = [
+  "/",
   "/login",
   "/signup",
   "/forgot-password",

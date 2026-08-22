@@ -10,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { formatDate } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { IncidentTypeBadge } from "@/components/admin/incident-type-badge";
+import { IncidentMessages, type IncidentMessage } from "@/components/admin/incident-messages";
 import type { IncidentType } from "@/lib/incident-type";
 
 export type IncidentLogRow = {
@@ -40,10 +41,14 @@ export function IncidentMonitorView({
   incident,
   initialLogs,
   initialPoint,
+  currentUserId,
+  initialMessages,
 }: {
   incident: IncidentBundle;
   initialLogs: IncidentLogRow[];
   initialPoint: { lat: number; lng: number } | null;
+  currentUserId: string;
+  initialMessages: IncidentMessage[];
 }) {
   const [logs, setLogs] = useState<IncidentLogRow[]>(initialLogs);
   const [point, setPoint] = useState<{ lat: number; lng: number } | null>(initialPoint);
@@ -128,7 +133,7 @@ export function IncidentMonitorView({
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [incident.id]);
+  }, [incident.id, incident.device]);
 
   async function onStop() {
     setStopPending(true);
@@ -251,6 +256,13 @@ export function IncidentMonitorView({
 
       <aside className="absolute right-0 top-0 z-0 h-full w-full border-l bg-white lg:w-[320px] lg:z-10">
         <div className="flex h-full flex-col">
+          <div className="h-1/2 min-h-0 border-b">
+            <IncidentMessages
+              incidentId={incident.id}
+              currentUserId={currentUserId}
+              initialMessages={initialMessages}
+            />
+          </div>
           <div className="border-b px-4 py-3">
             <p className="text-sm font-semibold">Incident Logs</p>
             <p className="text-xs text-slate-500">

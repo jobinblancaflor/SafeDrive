@@ -29,26 +29,19 @@ export async function POST(_req: Request, ctx: { params: { incident_id: string }
     return NextResponse.json({ error: "incident has no device" }, { status: 409 });
   }
 
+  // incidents.device_id stores devices.device_uuid (text), not devices.id.
   const { data: device } = await admin
     .from("devices")
-    .select("id, device_uuid")
-    .eq("id", incident.device_id)
+    .select("id, device_uuid, fcm_id")
+    .eq("device_uuid", incident.device_id)
     .single();
   if (!device) return NextResponse.json({ error: "device not found" }, { status: 404 });
-
-  const { data: notif } = await admin
-    .from("notifications")
-    .select("device_firebase_id")
-    .eq("device_id", device.id)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (!notif?.device_firebase_id) {
-    return NextResponse.json({ error: "no fcm token" }, { status: 409 });
+  if (!device.fcm_id) {
+    return NextResponse.json({ error: "device has no registered push token" }, { status: 409 });
   }
 
   try {
-    await sendStopEmergency(notif.device_firebase_id, device.device_uuid);
+    await sendStopEmergency(device.fcm_id, device.device_uuid);
   } catch (err) {
     console.error("FCM stop_emergency failed:", err);
     return NextResponse.json({ error: "fcm failed" }, { status: 502 });
