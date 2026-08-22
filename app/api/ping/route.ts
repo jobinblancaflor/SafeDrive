@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
-import { sendPing } from "@/lib/fcm";
+import { sendPing, describeFcmError } from "@/lib/fcm";
 
 const Body = z.object({ device_id: z.string().uuid() });
 
@@ -46,7 +46,7 @@ export async function POST(req: Request) {
       pushed = true;
     } catch (err) {
       console.error("FCM send failed:", err);
-      pushError = "push failed to send";
+      pushError = describeFcmError(err);
     }
   } else {
     pushError = "device has no registered push token";

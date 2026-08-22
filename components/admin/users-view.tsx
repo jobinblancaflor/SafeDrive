@@ -67,6 +67,7 @@ export function UsersView({
   const [page, setPage] = React.useState(1);
   const [action, setAction] = React.useState<Action | null>(null);
   const [inviteOpen, setInviteOpen] = React.useState(false);
+  const [roleChangingId, setRoleChangingId] = React.useState<string | null>(null);
   const [feedback, setFeedback] = React.useState<
     null | { kind: "ok" | "err"; message: string }
   >(null);
@@ -121,6 +122,29 @@ export function UsersView({
       ),
     );
     pushFeedback("ok", `${user.fullname} → ${status}`);
+    router.refresh();
+    return true;
+  }
+
+  async function runRoleChange(user: AdminUserRow, role: UserRole) {
+    const res = await fetch(`/api/admin/users/${user.id}/role`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ role }),
+    });
+    const json = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      error?: string;
+      profile?: { id: string; role: UserRole };
+    };
+    if (!res.ok || !json.ok) {
+      pushFeedback("err", json.error ?? "Role change failed");
+      return false;
+    }
+    setUsers((prev) =>
+      prev.map((u) => (u.id === user.id ? { ...u, role: json.profile?.role ?? role } : u)),
+    );
+    pushFeedback("ok", `${user.fullname} → ${role}`);
     router.refresh();
     return true;
   }
@@ -207,17 +231,22 @@ export function UsersView({
                   <TableCell className="font-medium">{u.fullname}</TableCell>
                   <TableCell>{u.phone ?? "—"}</TableCell>
                   <TableCell>
-                    <Badge
-                      variant={
-                        u.role === "admin"
-                          ? "destructive"
-                          : u.role === "authority"
-                            ? "warning"
-                            : "secondary"
-                      }
+                    <select
+                      value={u.role}
+                      disabled={isSelf || roleChangingId === u.id}
+                      onChange={async (e) => {
+                        const role = e.target.value as UserRole;
+                        setRoleChangingId(u.id);
+                        await runRoleChange(u, role);
+                        setRoleChangingId(null);
+                      }}
+                      title={isSelf ? "You can't change your own role" : undefined}
+                      className="h-8 rounded-md border border-slate-200 bg-white px-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      {u.role}
-                    </Badge>
+                      <option value="rider">rider</option>
+                      <option value="authority">authority</option>
+                      <option value="admin">admin</option>
+                    </select>
                   </TableCell>
                   <TableCell>
                     <StatusBadge status={u.status} />

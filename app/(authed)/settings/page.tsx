@@ -27,7 +27,14 @@ export default async function SettingsPage() {
           <CardDescription>Update your name and phone.</CardDescription>
         </CardHeader>
         <CardContent>
-          <ProfileForm initial={{ fullname: profile?.fullname ?? "", phone: profile?.phone ?? "" }} />
+          <ProfileForm
+            userId={user.id}
+            initial={{
+              fullname: profile?.fullname ?? "",
+              phone: profile?.phone ?? "",
+              profile_img: profile?.profile_img ?? null,
+            }}
+          />
         </CardContent>
       </Card>
 

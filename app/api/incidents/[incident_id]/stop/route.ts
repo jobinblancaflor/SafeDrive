@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { sendStopEmergency } from "@/lib/fcm";
+import { sendStopEmergency, describeFcmError } from "@/lib/fcm";
 
 export async function POST(_req: Request, ctx: { params: { incident_id: string } }) {
   const supabase = createClient();
@@ -44,7 +44,7 @@ export async function POST(_req: Request, ctx: { params: { incident_id: string }
     await sendStopEmergency(device.fcm_id, device.device_uuid);
   } catch (err) {
     console.error("FCM stop_emergency failed:", err);
-    return NextResponse.json({ error: "fcm failed" }, { status: 502 });
+    return NextResponse.json({ error: describeFcmError(err) }, { status: 502 });
   }
 
   await supabase.from("logs").insert({

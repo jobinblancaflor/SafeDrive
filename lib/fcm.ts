@@ -46,3 +46,22 @@ export async function sendStopEmergency(deviceToken: string, deviceUuid: string)
     data: { type: "stop_emergency", deviceUuid },
   });
 }
+
+// Firebase error codes are opaque to admins staring at a toast — translate
+// the ones we actually see in this app into something actionable.
+export function describeFcmError(err: unknown): string {
+  const code = (err as { errorInfo?: { code?: string }; code?: string } | undefined)?.errorInfo?.code
+    ?? (err as { code?: string } | undefined)?.code;
+  switch (code) {
+    case "messaging/mismatched-credential":
+      return "Firebase project mismatch: this device's push token belongs to a different Firebase project than the one configured on this server (FIREBASE_PROJECT_ID). The mobile app and this backend must use the same Firebase project.";
+    case "messaging/registration-token-not-registered":
+      return "This device's push token is no longer valid (app uninstalled, or token expired). It needs to open the app again to re-register.";
+    case "messaging/invalid-argument":
+      return "The stored push token is malformed.";
+    case "app/invalid-credential":
+      return "This server's Firebase Admin credentials are invalid or misconfigured.";
+    default:
+      return "Push notification failed to send.";
+  }
+}
