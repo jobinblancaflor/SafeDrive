@@ -11,10 +11,12 @@ import {
   PowerOff,
   Search,
   Trash2,
+  UserPlus,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { InviteUserDialog } from "@/components/admin/invite-user-dialog";
 import {
   Table,
   TableBody,
@@ -64,6 +66,7 @@ export function UsersView({
   const [query, setQuery] = React.useState("");
   const [page, setPage] = React.useState(1);
   const [action, setAction] = React.useState<Action | null>(null);
+  const [inviteOpen, setInviteOpen] = React.useState(false);
   const [feedback, setFeedback] = React.useState<
     null | { kind: "ok" | "err"; message: string }
   >(null);
@@ -152,9 +155,14 @@ export function UsersView({
             className="pl-9"
           />
         </div>
-        <p className="text-sm text-slate-500">
-          {filtered.length} of {total} users
-        </p>
+        <div className="flex items-center gap-3">
+          <p className="text-sm text-slate-500">
+            {filtered.length} of {total} users
+          </p>
+          <Button onClick={() => setInviteOpen(true)} className="gap-1.5">
+            <UserPlus className="h-4 w-4" aria-hidden /> Invite user
+          </Button>
+        </div>
       </div>
 
       {feedback && (
@@ -282,6 +290,15 @@ export function UsersView({
         page={page}
         totalPages={totalPages}
         onChange={setPage}
+      />
+
+      <InviteUserDialog
+        open={inviteOpen}
+        onClose={() => setInviteOpen(false)}
+        onInvited={(message) => {
+          pushFeedback("ok", message);
+          router.refresh();
+        }}
       />
 
       <ConfirmDialog

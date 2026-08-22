@@ -4,7 +4,9 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
+import { GoogleAuthButton } from "@/components/auth/google-auth-button";
 import { createClient } from "@/lib/supabase/client";
 
 export function SignupForm() {
@@ -51,12 +53,17 @@ export function SignupForm() {
       </div>
       <div className="space-y-1">
         <Label htmlFor="password">Password</Label>
-        <Input id="password" type="password" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} />
+        <PasswordInput id="password" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} />
       </div>
       {error && <p className="text-sm text-status-critical">{error}</p>}
       <Button type="submit" disabled={loading} className="w-full">
         {loading ? "Creating…" : "Create account"}
       </Button>
+      <div className="relative py-1 text-center text-xs uppercase text-slate-400">
+        <span className="relative bg-white px-2">or</span>
+        <div className="absolute inset-x-0 top-1/2 -z-10 border-t border-slate-200" />
+      </div>
+      <GoogleAuthButton />
     </form>
   );
 }

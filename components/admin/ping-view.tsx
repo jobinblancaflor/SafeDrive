@@ -57,9 +57,11 @@ export function PingView({ devices }: { devices: Device[] }) {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ device_id: selected.id }),
     });
+    const json = (await res.json().catch(() => ({}))) as { pushed?: boolean; pushError?: string };
     setLoading(false);
-    if (res.ok) setPingResult("Ping sent — awaiting device receipt.");
-    else setPingResult("Failed to send ping.");
+    if (!res.ok) setPingResult("Failed to send ping.");
+    else if (json.pushed) setPingResult("Ping sent — awaiting device receipt.");
+    else setPingResult(`Ping recorded, but push wasn't delivered: ${json.pushError ?? "unknown error"}`);
   }
 
   return (

@@ -29,21 +29,27 @@ export async function POST(req: Request) {
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Look up FCM token and send (best-effort — don't fail the ping)
-  const { data: notif } = await supabase
-    .from("notifications")
-    .select("device_firebase_id")
-    .eq("device_id", parsed.data.device_id)
-    .order("created_at", { ascending: false })
-    .limit(1)
+  // Look up the device's registered FCM token and send (best-effort — a
+  // missing/failed push doesn't fail the ping record itself, but we report
+  // whether it actually went out so the UI can tell the admin).
+  const { data: device } = await supabase
+    .from("devices")
+    .select("fcm_id")
+    .eq("id", parsed.data.device_id)
     .maybeSingle();
 
-  if (notif?.device_firebase_id) {
+  let pushed = false;
+  let pushError: string | undefined;
+  if (device?.fcm_id) {
     try {
-      await sendPing(notif.device_firebase_id, { pingId: ping.id });
+      await sendPing(device.fcm_id, { pingId: ping.id });
+      pushed = true;
     } catch (err) {
       console.error("FCM send failed:", err);
+      pushError = "push failed to send";
     }
+  } else {
+    pushError = "device has no registered push token";
   }
 
   await supabase.from("logs").insert({
@@ -51,10 +57,10 @@ export async function POST(req: Request) {
     action: "ping.sent",
     entity: "device",
     entity_id: parsed.data.device_id,
-    meta: { ping_id: ping.id },
+    meta: { ping_id: ping.id, pushed },
   });
 
-  return NextResponse.json({ data: ping }, { status: 201 });
+  return NextResponse.json({ data: ping, pushed, pushError }, { status: 201 });
 }
 
 // Device acknowledges a ping — no session required from the device, same

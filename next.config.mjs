@@ -12,7 +12,8 @@ const nextConfig = {
       "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
       // Tailwind/Leaflet/swagger-ui rely on inline styles.
       "style-src 'self' 'unsafe-inline'",
-      "img-src 'self' data: blob: https://*.tile.openstreetmap.org",
+      // Supabase Storage serves rider profile photos.
+      `img-src 'self' data: blob: https://*.tile.openstreetmap.org ${supabaseUrl}`,
       "font-src 'self' data:",
       `connect-src 'self' ${supabaseUrl} ${supabaseWs}`,
       "frame-ancestors 'none'",

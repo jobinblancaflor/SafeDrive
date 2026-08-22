@@ -25,7 +25,15 @@ const commonLinks = [
   { href: "/settings", label: "Settings" },
 ];
 
-export function Sidebar({ role, unreadCount }: { role: AppRole; unreadCount: number }) {
+export function Sidebar({
+  role,
+  unreadCount,
+  onNavigate,
+}: {
+  role: AppRole;
+  unreadCount: number;
+  onNavigate?: () => void;
+}) {
   const pathname = usePathname();
   const items = role === "admin" ? adminLinks : authorityLinks;
 
@@ -36,6 +44,7 @@ export function Sidebar({ role, unreadCount }: { role: AppRole; unreadCount: num
         <Link
           key={l.href}
           href={l.href}
+          onClick={onNavigate}
           className={cn(
             "px-3 py-2 rounded-md hover:bg-slate-100 transition-colors",
             pathname?.startsWith(l.href) && "bg-primary-container text-primary font-medium hover:bg-primary-container",
@@ -54,6 +63,7 @@ export function Sidebar({ role, unreadCount }: { role: AppRole; unreadCount: num
         <Link
           key={l.href}
           href={l.href}
+          onClick={onNavigate}
           className={cn(
             "px-3 py-2 rounded-md hover:bg-slate-100 transition-colors",
             pathname === l.href && "bg-primary-container text-primary font-medium hover:bg-primary-container",

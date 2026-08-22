@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { requireRole } from "@/lib/rbac";
 import { createClient } from "@/lib/supabase/server";
 import { IncidentMonitorView, type IncidentLogRow } from "@/components/admin/incident-monitor-view";
+import type { IncidentMessage } from "@/components/admin/incident-messages";
 import type { IncidentType } from "@/lib/incident-type";
 import type { IncidentStatus } from "@/lib/supabase/types";
 
@@ -10,7 +11,7 @@ export default async function MonitorIncidentPage({
 }: {
   params: { incident_id: string };
 }) {
-  await requireRole(["admin", "authority"]);
+  const staffProfile = await requireRole(["admin", "authority"]);
   const supabase = createClient();
 
   const { data: incident, error } = await supabase
@@ -63,8 +64,18 @@ export default async function MonitorIncidentPage({
       ? { lat: latestWithCoords.lat as number, lng: latestWithCoords.lng as number }
       : null;
 
+  const { data: messages } = await supabase
+    .from("incident_messages")
+    .select("id, incident_id, sender_id, body, created_at")
+    .eq("incident_id", params.incident_id)
+    .order("created_at", { ascending: true })
+    .limit(200);
+  const initialMessages: IncidentMessage[] = messages ?? [];
+
   return (
     <IncidentMonitorView
+      currentUserId={staffProfile.id}
+      initialMessages={initialMessages}
       incident={{
         id: incident.id,
         status: incident.status as IncidentStatus,
