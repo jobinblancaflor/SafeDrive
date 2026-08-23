@@ -1,14 +1,16 @@
+import Link from "next/link";
 import { requireUser } from "@/lib/rbac";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { createClient } from "@/lib/supabase/server";
 import { Badge } from "@/components/ui/badge";
+import { Avatar } from "@/components/ui/avatar";
 
 export default async function ProfilePage() {
   const user = await requireUser();
   const supabase = createClient();
   const { data: profile } = await supabase
     .from("profiles")
-    .select("id, fullname, phone, role, created_at")
+    .select("id, fullname, phone, role, created_at, profile_img")
     .eq("id", user.id)
     .single();
 
@@ -26,6 +28,12 @@ export default async function ProfilePage() {
           <CardDescription>Information associated with your Secure Signal account.</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-2">
+          <div className="md:col-span-2 flex items-center gap-4">
+            <Avatar src={profile?.profile_img} alt={profile?.fullname ?? "Profile photo"} size={64} />
+            <Link href="/settings" className="text-sm font-medium text-primary hover:underline">
+              Change photo in Settings
+            </Link>
+          </div>
           <Field label="Full name" value={profile?.fullname ?? "—"} />
           <Field label="Phone" value={profile?.phone ?? "—"} />
           <Field label="Email" value={user.email ?? "—"} />

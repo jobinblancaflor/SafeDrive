@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PhoneInput } from "@/components/ui/phone-input";
 import { Label } from "@/components/ui/label";
 import { CardDescription } from "@/components/ui/card";
 
@@ -79,7 +80,7 @@ export function EmergencyContactForm(props: Props) {
         </div>
         <div className="space-y-1">
           <Label htmlFor="ec-phone">Phone</Label>
-          <Input id="ec-phone" value={phone} onChange={(e) => setPhone(e.target.value)} />
+          <PhoneInput id="ec-phone" value={phone} onChange={setPhone} />
         </div>
       </div>
       {error && <p className="text-sm text-status-critical">{error}</p>}
