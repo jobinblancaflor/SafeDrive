@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Wordmark } from "@/components/brand/logo";
+import { NewsletterForm } from "@/components/marketing/newsletter-form";
 
 const navLinks = [
   { href: "/#how-it-works", label: "How it works" },
@@ -39,7 +40,7 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
       <main className="flex-1">{children}</main>
 
       <footer className="border-t border-slate-200 bg-background">
-        <div className="max-w-6xl mx-auto px-6 py-12 grid gap-10 sm:grid-cols-2 md:grid-cols-4">
+        <div className="max-w-6xl mx-auto px-6 py-12 grid gap-10 sm:grid-cols-2 md:grid-cols-5">
           <div className="md:col-span-1">
             <Wordmark />
             <p className="mt-3 text-sm text-slate-500 leading-relaxed max-w-[22ch]">
@@ -68,6 +69,7 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
               { href: "/privacy", label: "Privacy" },
             ]}
           />
+          <NewsletterForm />
         </div>
         <div className="border-t border-slate-200">
           <div className="max-w-6xl mx-auto px-6 py-5 text-xs text-slate-500 flex flex-col sm:flex-row gap-2 justify-between">

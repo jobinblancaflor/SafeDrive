@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
-type Role = "rider" | "admin" | "authority";
+type Role = "rider" | "admin" | "authority" | "seller";
 
 export function InviteUserDialog({
   open,
@@ -96,6 +96,7 @@ export function InviteUserDialog({
               className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-900"
             >
               <option value="rider">rider</option>
+              <option value="seller">seller</option>
               <option value="authority">authority</option>
               <option value="admin">admin</option>
             </select>

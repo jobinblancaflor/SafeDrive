@@ -34,7 +34,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { cn, formatDate } from "@/lib/utils";
 
 export type ProfileStatus = "Active" | "Inactive" | "Deleted";
-export type UserRole = "rider" | "admin" | "authority";
+export type UserRole = "rider" | "admin" | "authority" | "seller";
 
 export type AdminUserRow = {
   id: string;
@@ -50,7 +50,8 @@ const PAGE_SIZE = 25;
 type Action =
   | { kind: "delete"; user: AdminUserRow }
   | { kind: "reset"; user: AdminUserRow }
-  | { kind: "toggle"; user: AdminUserRow };
+  | { kind: "toggle"; user: AdminUserRow }
+  | { kind: "role"; user: AdminUserRow; nextRole: UserRole };
 
 export function UsersView({
   initialUsers,
@@ -234,16 +235,16 @@ export function UsersView({
                     <select
                       value={u.role}
                       disabled={isSelf || roleChangingId === u.id}
-                      onChange={async (e) => {
-                        const role = e.target.value as UserRole;
-                        setRoleChangingId(u.id);
-                        await runRoleChange(u, role);
-                        setRoleChangingId(null);
+                      onChange={(e) => {
+                        const nextRole = e.target.value as UserRole;
+                        if (nextRole === u.role) return;
+                        setAction({ kind: "role", user: u, nextRole });
                       }}
                       title={isSelf ? "You can't change your own role" : undefined}
                       className="h-8 rounded-md border border-slate-200 bg-white px-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <option value="rider">rider</option>
+                      <option value="seller">seller</option>
                       <option value="authority">authority</option>
                       <option value="admin">admin</option>
                     </select>
@@ -386,6 +387,32 @@ export function UsersView({
           const next: ProfileStatus =
             action.user.status === "Active" ? "Inactive" : "Active";
           const ok = await runStatusChange(action.user, next);
+          if (ok) setAction(null);
+        }}
+      />
+
+      <ConfirmDialog
+        open={action?.kind === "role" && !!action.user}
+        title={
+          action?.kind === "role"
+            ? `Change ${action.user.fullname}'s role to ${action.nextRole}?`
+            : ""
+        }
+        description={
+          action?.kind === "role" ? (
+            <>
+              This changes what {action.user.fullname} can see and do across
+              the whole dashboard, effective immediately.
+            </>
+          ) : null
+        }
+        confirmLabel="Change role"
+        onCancel={() => setAction(null)}
+        onConfirm={async () => {
+          if (!action || action.kind !== "role") return;
+          setRoleChangingId(action.user.id);
+          const ok = await runRoleChange(action.user, action.nextRole);
+          setRoleChangingId(null);
           if (ok) setAction(null);
         }}
       />

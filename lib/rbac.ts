@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "./supabase/server";
 
-export type AppRole = "rider" | "admin" | "authority";
+export type AppRole = "rider" | "admin" | "authority" | "seller";
 
 export type AppProfile = {
   id: string;

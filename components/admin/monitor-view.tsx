@@ -1,23 +1,53 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { IncidentMap, type MapIncident } from "@/components/map/incident-map";
+import { IncidentMessages, type IncidentMessage } from "@/components/admin/incident-messages";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { formatDate } from "@/lib/utils";
+import { cn, formatDate } from "@/lib/utils";
+import { createClient } from "@/lib/supabase/client";
 
 export function MonitorView({
   initialIncidents,
   initialDate,
+  currentUserId,
 }: {
   initialIncidents: MapIncident[];
   initialDate: string;
+  currentUserId: string;
 }) {
   const [date, setDate] = useState(initialDate);
   const [incidents, setIncidents] = useState<MapIncident[]>(initialIncidents);
   const [selected, setSelected] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const [messages, setMessages] = useState<IncidentMessage[]>([]);
+  const [messagesLoading, setMessagesLoading] = useState(false);
+
+  useEffect(() => {
+    if (!selected) {
+      setMessages([]);
+      return;
+    }
+    let cancelled = false;
+    setMessagesLoading(true);
+    const supabase = createClient();
+    supabase
+      .from("incident_messages")
+      .select("id, incident_id, sender_id, body, created_at")
+      .eq("incident_id", selected)
+      .order("created_at", { ascending: true })
+      .limit(200)
+      .then(({ data }) => {
+        if (cancelled) return;
+        setMessages(data ?? []);
+        setMessagesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selected]);
 
   function load() {
     startTransition(async () => {
@@ -41,8 +71,8 @@ export function MonitorView({
   const sel = selected ? incidents.find((i) => i.id === selected) : null;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6">
-      <div className="space-y-4">
+    <div className="grid h-full min-h-0 grid-cols-1 gap-6 lg:grid-cols-[1fr_320px]">
+      <div className="flex h-full min-h-0 flex-col gap-4">
         <div className="flex items-end gap-2">
           <div>
             <label className="text-xs uppercase text-slate-500">Date</label>
@@ -51,10 +81,15 @@ export function MonitorView({
           <Button onClick={load} disabled={isPending}>{isPending ? "Loading…" : "Apply"}</Button>
           <span className="text-sm text-slate-500 ml-2">{incidents.length} incidents</span>
         </div>
-        <IncidentMap incidents={incidents} selectedId={selected} onSelect={setSelected} />
+        <IncidentMap
+          incidents={incidents}
+          selectedId={selected}
+          onSelect={setSelected}
+          className="h-full flex-1"
+        />
       </div>
 
-      <aside className="space-y-4">
+      <aside className="flex h-full min-h-0 flex-col gap-4">
         {sel ? (
           <div className="rounded-lg border bg-white p-4 space-y-3">
             <div className="flex items-center justify-between">
@@ -81,11 +116,14 @@ export function MonitorView({
         )}
 
         <div className="rounded-lg border bg-white">
-          <ul className="divide-y max-h-[420px] overflow-auto">
+          <ul className="divide-y max-h-[200px] overflow-auto">
             {incidents.map((i) => (
               <li
                 key={i.id}
-                className="p-3 cursor-pointer hover:bg-slate-50"
+                className={cn(
+                  "p-3 cursor-pointer hover:bg-slate-50",
+                  i.id === selected && "bg-slate-100",
+                )}
                 onClick={() => setSelected(i.id)}
               >
                 <div className="flex items-center justify-between text-sm">
@@ -96,6 +134,27 @@ export function MonitorView({
               </li>
             ))}
           </ul>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-hidden rounded-lg border bg-white">
+          {sel ? (
+            messagesLoading ? (
+              <div className="flex h-full items-center justify-center text-sm text-slate-500">
+                Loading messages…
+              </div>
+            ) : (
+              <IncidentMessages
+                key={sel.id}
+                incidentId={sel.id}
+                currentUserId={currentUserId}
+                initialMessages={messages}
+              />
+            )
+          ) : (
+            <div className="flex h-full items-center justify-center p-4 text-center text-sm text-slate-500">
+              Select an incident to message the rider.
+            </div>
+          )}
         </div>
       </aside>
     </div>

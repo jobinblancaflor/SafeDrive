@@ -7,7 +7,7 @@ import { MonitorView } from "@/components/admin/monitor-view";
 // /authority/monitor with identical markup; requireRole still gates access
 // so riders can never reach it.
 export default async function MonitorPage() {
-  await requireRole(["admin", "authority"]);
+  const profile = await requireRole(["admin", "authority"]);
   const supabase = createClient();
   const today = new Date().toISOString().slice(0, 10);
   const { data: incidents } = await supabase
@@ -18,12 +18,16 @@ export default async function MonitorPage() {
     .order("occurred_at", { ascending: false });
 
   return (
-    <div className="space-y-6">
+    <div className="flex h-full min-h-0 flex-col gap-6">
       <div>
         <h1 className="text-2xl font-semibold">Monitor</h1>
         <p className="text-sm text-slate-500">Incidents by date. Default is today.</p>
       </div>
-      <MonitorView initialIncidents={incidents ?? []} initialDate={today} />
+      <MonitorView
+        initialIncidents={incidents ?? []}
+        initialDate={today}
+        currentUserId={profile.id}
+      />
     </div>
   );
 }

@@ -10,7 +10,7 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[];
 
-export type UserRole = "rider" | "admin" | "authority";
+export type UserRole = "rider" | "admin" | "authority" | "seller";
 export type IncidentStatus = "received" | "reported" | "canceled";
 export type IncidentType = "SOS Button" | "SOS Volume keys" | "SOS USB" | "SOS Fall Detected";
 export type PingStatus = "sent" | "received";
@@ -37,6 +37,30 @@ export type EmergencyContact = {
   fullname: string;
   phone: string;
   created_at: string;
+};
+
+export type BusinessHours = Partial<
+  Record<
+    "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun",
+    { open: string; close: string; closed?: boolean }
+  >
+>;
+
+export type SellerProfile = {
+  id: string;
+  user_id: string;
+  business_name: string | null;
+  services: string[];
+  business_hours: BusinessHours;
+  contact_phone: string | null;
+  contact_email: string | null;
+  area_label: string | null;
+  area_lat: number | null;
+  area_lng: number | null;
+  area_radius_meters: number | null;
+  onboarding_completed_at: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
 export type Device = {

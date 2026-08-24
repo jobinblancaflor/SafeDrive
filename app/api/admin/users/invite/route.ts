@@ -7,7 +7,7 @@ const Body = z.object({
   email: z.string().email(),
   fullname: z.string().min(1).max(200),
   phone: z.string().max(50).optional(),
-  role: z.enum(["rider", "admin", "authority"]).default("rider"),
+  role: z.enum(["rider", "admin", "authority", "seller"]).default("rider"),
 });
 
 export async function POST(req: Request) {

@@ -117,6 +117,26 @@ export function IncidentsView({
   const [loading, setLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
+  // Default map center: the viewer's own location, so the map opens where
+  // the admin actually is rather than a hardcoded city — falls back to no
+  // preference (map's own DEFAULT_CENTER) if geolocation is denied/unavailable.
+  const [viewerLocation, setViewerLocation] = useState<LatLng | null>(null);
+  const [locating, setLocating] = useState(true);
+  useEffect(() => {
+    if (!navigator.geolocation) {
+      setLocating(false);
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setViewerLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setLocating(false);
+      },
+      () => setLocating(false),
+      { timeout: 6000 },
+    );
+  }, []);
+
   const [scope, setScope] = useState<DateScope>("today");
   const [date, setDate] = useState<string>(defaultDate ?? todayUtcDate());
 
@@ -562,9 +582,9 @@ export function IncidentsView({
         </div>
       </div>
 
-      {loading && incidents.length === 0 ? (
+      {(loading && incidents.length === 0) || (view === "map" && locating) ? (
         <div className="flex h-[520px] items-center justify-center rounded-lg border bg-white text-sm text-slate-500">
-          <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading incidents…
+          <Loader2 className="mr-2 h-4 w-4 animate-spin" /> {locating ? "Locating you…" : "Loading incidents…"}
         </div>
       ) : view === "map" ? (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_360px]">
@@ -573,6 +593,7 @@ export function IncidentsView({
               incidents={mapIncidents}
               selectedId={selectedId}
               onSelect={setSelectedId}
+              initialCenter={viewerLocation}
               filterCenter={filterByLocation ? filterCenter : null}
               onMapClick={(pt) => {
                 if (filterByLocation) {

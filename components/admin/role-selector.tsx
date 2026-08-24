@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { createClient } from "@/lib/supabase/client";
 
-type Role = "rider" | "admin" | "authority";
+type Role = "rider" | "admin" | "authority" | "seller";
 
 export function RoleSelector({ userId, current }: { userId: string; current: Role }) {
   const router = useRouter();
@@ -34,6 +34,7 @@ export function RoleSelector({ userId, current }: { userId: string; current: Rol
         className="h-8 rounded-md border border-slate-200 bg-white text-sm px-2"
       >
         <option value="rider">rider</option>
+        <option value="seller">seller</option>
         <option value="authority">authority</option>
         <option value="admin">admin</option>
       </select>

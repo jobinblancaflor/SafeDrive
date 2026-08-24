@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/utils";
 import { RoleSelector } from "@/components/admin/role-selector";
+import { UserDetailsForm } from "@/components/admin/user-details-form";
 import { EmergencyContactForm } from "@/components/auth/emergency-contact-form";
 
 export default async function AdminUserDetail({ params }: { params: { id: string } }) {
@@ -38,12 +39,14 @@ export default async function AdminUserDetail({ params }: { params: { id: string
           <CardTitle>{profile.fullname}</CardTitle>
           <CardDescription>User profile and settings</CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-3 md:grid-cols-3">
-          <Field label="Phone" value={profile.phone ?? "—"} />
-          <Field label="Joined" value={formatDate(profile.created_at)} />
-          <div>
-            <p className="text-xs uppercase text-slate-500">Role</p>
-            <RoleSelector userId={profile.id} current={profile.role} />
+        <CardContent className="space-y-4">
+          <UserDetailsForm userId={profile.id} initial={{ fullname: profile.fullname, phone: profile.phone }} />
+          <div className="grid gap-3 md:grid-cols-3">
+            <Field label="Joined" value={formatDate(profile.created_at)} />
+            <div>
+              <p className="text-xs uppercase text-slate-500">Role</p>
+              <RoleSelector userId={profile.id} current={profile.role} />
+            </div>
           </div>
         </CardContent>
       </Card>

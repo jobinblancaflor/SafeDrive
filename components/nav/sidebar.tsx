@@ -22,6 +22,8 @@ const authorityLinks = [
 
 const riderLinks = [{ href: "/incidents", label: "Incidents" }];
 
+const sellerLinks = [{ href: "/onboarding/seller", label: "Business profile" }];
+
 const commonLinks = [
   { href: "/profile", label: "Profile" },
   { href: "/settings", label: "Settings" },
@@ -37,7 +39,14 @@ export function Sidebar({
   onNavigate?: () => void;
 }) {
   const pathname = usePathname();
-  const items = role === "admin" ? adminLinks : role === "authority" ? authorityLinks : riderLinks;
+  const items =
+    role === "admin"
+      ? adminLinks
+      : role === "authority"
+        ? authorityLinks
+        : role === "seller"
+          ? sellerLinks
+          : riderLinks;
 
   return (
     <nav className="flex flex-col px-3 py-4 gap-1 text-sm">
