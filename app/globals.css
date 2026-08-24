@@ -82,3 +82,11 @@ h1, h2, h3, h4 {
     scroll-behavior: auto !important;
   }
 }
+
+/* intl-tel-input injects its own `.iti` wrapper around the <input> at
+   runtime; it defaults to `display: inline-block` with no width, so it
+   shrinks to content instead of filling the field like sibling inputs. */
+.iti {
+  display: block;
+  width: 100%;
+}

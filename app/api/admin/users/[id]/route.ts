@@ -3,10 +3,11 @@ import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 
 const Body = z.object({
-  role: z.enum(["rider", "admin", "authority", "seller"]),
+  fullname: z.string().trim().min(1),
+  phone: z.string().trim().min(1).nullable(),
 });
 
-export async function POST(req: Request, ctx: { params: { id: string } }) {
+export async function PATCH(req: Request, ctx: { params: { id: string } }) {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "unauth" }, { status: 401 });
@@ -26,34 +27,22 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
   }
 
   const targetId = ctx.params.id;
-  // Prevent an admin from demoting themselves out of admin — easy way to
-  // lock the org out of the dashboard (same guard as the status route).
-  if (targetId === user.id && parsed.data.role !== "admin") {
-    return NextResponse.json(
-      { error: "cannot change your own role" },
-      { status: 409 },
-    );
-  }
-
   const { data, error } = await supabase
     .from("profiles")
-    .update({ role: parsed.data.role })
+    .update({ fullname: parsed.data.fullname, phone: parsed.data.phone })
     .eq("id", targetId)
-    .select("id, role")
+    .select("id, fullname, phone")
     .single();
 
-  if (error) {
-    console.error("POST /api/admin/users/[id]/role failed:", error);
-    return NextResponse.json({ error: "failed to update role" }, { status: 500 });
-  }
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!data) return NextResponse.json({ error: "not found" }, { status: 404 });
 
   await supabase.from("logs").insert({
     actor: user.id,
-    action: "user.role_change",
+    action: "user.details_change",
     entity: "profile",
     entity_id: targetId,
-    meta: { role: parsed.data.role },
+    meta: { fullname: parsed.data.fullname, phone: parsed.data.phone },
   });
 
   return NextResponse.json({ ok: true, profile: data });

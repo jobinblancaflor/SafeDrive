@@ -29,6 +29,7 @@ yarn-error.log*
 # secrets
 *.json.key
 firebase-adminsdk-*.json
+*-firebase-adminsdk-*.json
 gcp-service-account*.json
 
 # local env files
@@ -36,6 +37,9 @@ gcp-service-account*.json
 
 # vercel
 .vercel
+
+# supabase CLI
+supabase/.temp
 
 # typescript
 *.tsbuildinfo

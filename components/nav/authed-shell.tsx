@@ -22,7 +22,7 @@ export function AuthedShell({
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   return (
-    <div className="min-h-screen lg:grid lg:grid-cols-[240px_1fr]">
+    <div className="h-dvh lg:grid lg:grid-cols-[240px_1fr]">
       {drawerOpen && (
         <div
           className="fixed inset-0 z-40 bg-slate-900/50 lg:hidden"
@@ -56,9 +56,9 @@ export function AuthedShell({
         </div>
       </aside>
 
-      <div className="flex min-w-0 flex-col">
+      <div className="flex h-full min-h-0 min-w-0 flex-col">
         <Topbar profile={profile} onMenuClick={() => setDrawerOpen(true)} />
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 bg-slate-50 overflow-x-hidden">{children}</main>
+        <main className="flex-1 min-h-0 overflow-x-hidden overflow-y-auto bg-slate-50 p-4 sm:p-6 lg:p-8">{children}</main>
       </div>
     </div>
   );

@@ -9,6 +9,10 @@ import "leaflet.markercluster/dist/MarkerCluster.css";
 import "leaflet.markercluster/dist/MarkerCluster.Default.css";
 import type { LatLng } from "@/lib/incident-geo";
 import { incidentTypeMeta, type IncidentType } from "@/lib/incident-type";
+import { cn } from "@/lib/utils";
+import { DEFAULT_CENTER, TILE_URL, TILE_ATTRIBUTION } from "@/lib/map-constants";
+
+export { DEFAULT_CENTER, TILE_URL, TILE_ATTRIBUTION };
 
 export type MapIncident = {
   id: string;
@@ -21,11 +25,6 @@ export type MapIncident = {
   lat: number | null;
   lng: number | null;
 };
-
-const DEFAULT_CENTER: LatLng = { lat: 14.5995, lng: 120.9842 };
-const TILE_URL = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
-const TILE_ATTRIBUTION =
-  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 
 function pinIcon(color: string): L.DivIcon {
   const svg = `
@@ -115,7 +114,9 @@ function ClusteredMarkers({
     for (const p of points) {
       const meta = incidentTypeMeta(p.incident_type ?? null);
       const color =
-        meta?.hex ?? (p.status === "reported" ? "#16a34a" : p.status === "canceled" ? "#ef4444" : "#d97706");
+        p.status === "canceled"
+          ? "#9ca3af"
+          : (meta?.hex ?? (p.status === "reported" ? "#16a34a" : "#d97706"));
       const marker = L.marker([p.lat, p.lng], { icon: pinIcon(color) });
       marker.bindPopup(popupContent(p));
       marker.on("click", () => onSelect?.(p.id));
@@ -237,12 +238,16 @@ export function IncidentMapImpl({
   onSelect,
   filterCenter,
   onMapClick,
+  className,
+  initialCenter,
 }: {
   incidents: MapIncident[];
   selectedId?: string | null;
   onSelect?: (id: string | null) => void;
   filterCenter?: LatLng | null;
   onMapClick?: (point: LatLng) => void;
+  className?: string;
+  initialCenter?: LatLng | null;
 }) {
   const points = useMemo(
     () =>
@@ -252,10 +257,10 @@ export function IncidentMapImpl({
     [incidents],
   );
 
-  const center = points[0] ? { lat: points[0].lat, lng: points[0].lng } : DEFAULT_CENTER;
+  const center = points[0] ? { lat: points[0].lat, lng: points[0].lng } : (initialCenter ?? DEFAULT_CENTER);
 
   return (
-    <div className="h-[500px] rounded-lg overflow-hidden border">
+    <div className={cn("h-[500px] rounded-lg overflow-hidden border", className)}>
       <MapContainer center={[center.lat, center.lng]} zoom={11} style={{ height: "100%", width: "100%" }}>
         <TileLayer url={TILE_URL} attribution={TILE_ATTRIBUTION} />
         <ClusteredMarkers points={points} selectedId={selectedId} onSelect={onSelect} />
