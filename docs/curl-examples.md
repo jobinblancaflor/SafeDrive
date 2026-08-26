@@ -87,11 +87,13 @@ curl "${AUTH[@]}" -X DELETE "$BASE_URL/api/admin/emergency-contact/7f3c0000-0000
 ## Device registration
 
 ```bash
-# Register (or confirm) a device belongs to a user. Idempotent: calling
-# again with the same device_uuid + user_id is a no-op, not a duplicate.
+# Register (or confirm) a device belongs to a user, optionally saving its
+# current FCM push token. Idempotent: calling again with the same
+# device_uuid + user_id is a no-op beyond refreshing fcm_token if a new one
+# is sent (e.g. after the OS rotates it) — not a duplicate.
 curl "${DEVICE[@]}" -X POST "$BASE_URL/api/devices/register" \
   -H "Content-Type: application/json" \
-  -d '{"device_uuid":"bff60f44be2a18fe","user_id":"RIDER_UUID"}'
+  -d '{"device_uuid":"bff60f44be2a18fe","user_id":"RIDER_UUID","fcm_token":"FCM_TOKEN"}'
 ```
 
 Rate limit: 20 requests / hour per IP.
