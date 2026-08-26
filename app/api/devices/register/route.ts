@@ -7,7 +7,8 @@ import { checkRateLimit, clientIp } from "@/lib/rate-limit";
 
 // Device registration — creates a devices row for (device_uuid, user_id)
 // if one doesn't already exist. Idempotent: calling this again for the
-// same device_uuid + user_id is a no-op, not a duplicate/error.
+// same device_uuid + user_id is a no-op beyond refreshing fcm_id if a new
+// token was sent, not a duplicate/error.
 //
 // No session required from the device — same anonymous trust model as the
 // incident ingest endpoints, so this uses the service-role client
@@ -16,6 +17,7 @@ import { checkRateLimit, clientIp } from "@/lib/rate-limit";
 const Body = z.object({
   device_uuid: z.string().trim().min(1),
   user_id: z.string().trim().min(1),
+  fcm_token: z.string().trim().min(1).optional(),
 });
 
 export async function POST(req: Request) {
@@ -26,7 +28,7 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: "invalid body", issues: parsed.error.issues }, { status: 400 });
   }
-  const { device_uuid, user_id } = parsed.data;
+  const { device_uuid, user_id, fcm_token } = parsed.data;
 
   const supabase = createAdminClient();
 
@@ -42,7 +44,7 @@ export async function POST(req: Request) {
 
   const { data: existing, error: lookupError } = await supabase
     .from("devices")
-    .select("id, device_uuid, user_id, created_at")
+    .select("id, device_uuid, user_id, fcm_id, created_at")
     .eq("device_uuid", device_uuid)
     .maybeSingle();
   if (lookupError) {
@@ -51,8 +53,25 @@ export async function POST(req: Request) {
   }
 
   if (existing) {
+    // A token refresh is a device-level fact independent of ownership, so
+    // update fcm_id regardless of which branch below we're in — but never
+    // touch user_id here (see the note in the mismatched-owner branch).
+    if (fcm_token && fcm_token !== existing.fcm_id) {
+      const { data: updated, error: updateError } = await supabase
+        .from("devices")
+        .update({ fcm_id: fcm_token, last_seen: new Date().toISOString() })
+        .eq("id", existing.id)
+        .select("id, device_uuid, user_id, fcm_id, created_at")
+        .single();
+      if (updateError) {
+        console.error("POST /api/devices/register fcm update failed:", updateError);
+        return NextResponse.json({ error: "failed to update device" }, { status: 500 });
+      }
+      existing.fcm_id = updated.fcm_id;
+    }
+
     if (existing.user_id === resolvedUserId) {
-      // Same device_uuid + same user_id already on file — nothing to do.
+      // Same device_uuid + same user_id already on file — nothing else to do.
       return NextResponse.json({ data: existing, created: false });
     }
     // device_uuid exists under a different (or no) user — per spec, only
@@ -69,8 +88,8 @@ export async function POST(req: Request) {
 
   const { data, error } = await supabase
     .from("devices")
-    .insert({ device_uuid, user_id: resolvedUserId })
-    .select("id, device_uuid, user_id, created_at")
+    .insert({ device_uuid, user_id: resolvedUserId, fcm_id: fcm_token ?? null })
+    .select("id, device_uuid, user_id, fcm_id, created_at")
     .single();
 
   if (error) {

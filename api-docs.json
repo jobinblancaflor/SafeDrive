@@ -64,11 +64,12 @@
       "path": "/api/devices/register",
       "methods": ["POST"],
       "auth": "Device (X-Device-Key required).",
-      "description": "Register or confirm a device_uuid belongs to a user_id. Idempotent: a matching (device_uuid, user_id) pair already on file is a no-op, not a duplicate. If device_uuid exists under a *different* user_id, ownership is deliberately not reassigned (a `note` field is returned instead) — an unauthenticated device call shouldn't be able to silently hijack a device's owner.",
+      "description": "Register or confirm a device_uuid belongs to a user_id, optionally saving its current FCM push token into devices.fcm_id. Idempotent: a matching (device_uuid, user_id) pair already on file is a no-op beyond refreshing fcm_id if a new token is sent (e.g. after the OS rotates it), not a duplicate. If device_uuid exists under a *different* user_id, ownership is deliberately not reassigned (a `note` field is returned instead) — an unauthenticated device call shouldn't be able to silently hijack a device's owner; fcm_id still refreshes in that case since a token refresh is a device-level fact independent of ownership.",
       "schemas": {
         "postRequest": {
           "device_uuid": "string (required) — the hardware's own id, not a uuid",
-          "user_id": "string (required) — driver's profiles.id; degrades to null if unresolvable, never fails the request"
+          "user_id": "string (required) — driver's profiles.id; degrades to null if unresolvable, never fails the request",
+          "fcm_token": "string (optional) — current FCM push token, saved to devices.fcm_id"
         }
       },
       "responses": {
