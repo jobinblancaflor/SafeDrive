@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { touchDevice } from "@/lib/incident-ingest";
+import { requireDeviceKey } from "@/lib/device-auth";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 const Body = z.object({
   lat: z.number().min(-90).max(90),
@@ -8,37 +12,42 @@ const Body = z.object({
   device_uuid: z.string().optional(),
 });
 
-// Device-side breadcrumb ingestion while an incident is active. Mirrors the
-// trust model of POST /api/incident — no session required from the device,
-// RLS on incident_logs restricts who can read the trail back. The admin/
-// authority monitor view listens for these rows via Supabase Realtime.
+// Legacy breadcrumb endpoint — POST /api/incidents/log is the current one;
+// this stays alive (and hardened the same way) for whatever mobile app
+// builds still call it. No session required from the device, so this uses
+// the service-role client throughout — same RETURNING/RLS reasoning as
+// POST /api/incident.
 export async function POST(req: Request, ctx: { params: { id: string } }) {
+  const authError = requireDeviceKey(req);
+  if (authError) return authError;
+
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ error: "invalid body" }, { status: 400 });
   }
   const { lat, lng, device_uuid } = parsed.data;
 
-  const supabase = createClient();
+  const supabase = createAdminClient();
 
   const { data: incident, error: incidentErr } = await supabase
     .from("incidents")
     .select("id, user_id, device_id")
     .eq("id", ctx.params.id)
-    .single();
+    .maybeSingle();
   if (incidentErr || !incident) {
     return NextResponse.json({ error: "incident not found" }, { status: 404 });
   }
 
-  let deviceId = incident.device_id ?? null;
-  if (!deviceId && device_uuid) {
-    const { data: device } = await supabase
-      .from("devices")
-      .select("id")
-      .eq("device_uuid", device_uuid)
-      .single();
-    deviceId = device?.id ?? null;
+  const allowed = await checkRateLimit(supabase, `incident.track:${incident.id}`, {
+    max: 30,
+    windowSeconds: 60,
+  });
+  if (!allowed) {
+    return NextResponse.json({ error: "too many requests" }, { status: 429 });
   }
+
+  const deviceId = incident.device_id || device_uuid?.trim() || null;
+  await touchDevice(supabase, deviceId, incident.user_id);
 
   const { data, error } = await supabase
     .from("incident_logs")
@@ -83,6 +92,9 @@ export async function GET(_req: Request, ctx: { params: { id: string } }) {
     .order("created_at", { ascending: false })
     .limit(100);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    console.error("GET /api/incident/[id]/track failed:", error);
+    return NextResponse.json({ error: "failed to load location trail" }, { status: 500 });
+  }
   return NextResponse.json({ data });
 }

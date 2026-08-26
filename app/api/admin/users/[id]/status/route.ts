@@ -42,7 +42,10 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
     .select("id, status")
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    console.error("admin/users/[id]/status failed:", error);
+    return NextResponse.json({ error: "failed to update status" }, { status: 500 });
+  }
   if (!data) return NextResponse.json({ error: "not found" }, { status: 404 });
 
   await supabase.from("logs").insert({

@@ -1,16 +1,18 @@
 {
   "$schema": "https://safedrive.local/schemas/api-docs.v1.json",
   "title": "Secure Signal Admin API",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "baseUrl": "https://safe-drive-phi.vercel.app/",
-  "description": "REST API for the Secure Signal Admin Next.js app. All authenticated routes use Supabase session cookies (sb-access-token / sb-refresh-token). Role checks: admin > authority > user.",
+  "description": "REST API for the Secure Signal Admin Next.js app. Staff/rider routes use Supabase session cookies (sb-access-token / sb-refresh-token). Device-facing routes (mobile app → backend) use a separate shared-secret header instead — there's no user session on the device. Role checks: admin > authority > seller/rider.",
   "conventions": {
-    "auth": "Browser-side Supabase session cookie. Unauthed -> 401 {error:\"unauth\"}.",
-    "errors": "JSON { error: string } unless noted.",
+    "auth": "Browser-side Supabase session cookie for staff/rider routes. Unauthed -> 401 {error:\"unauth\"}. Device routes require the X-Device-Key header instead (see deviceAuth below); missing/wrong -> 401, server not configured -> 503.",
+    "errors": "JSON { error: string } unless noted. Validation errors on most routes include an `issues` array.",
+    "rateLimiting": "Fixed-window, backed by Postgres (see rateLimits below). Exceeding it returns 429 { error: \"too many requests\" }. Fails open on infra error — never blocks a request over a rate-limiter outage.",
     "rbac": {
       "admin": "Full access; admin-only routes check profile.role === 'admin'.",
-      "authority": "May patch incident status, send device pings.",
-      "user": "May manage own emergency contacts, read own incidents."
+      "authority": "May patch incident status, send/start/stop device pings, message riders.",
+      "seller": "Manages own business profile (services, hours, service area) via onboarding.",
+      "rider": "May manage own emergency contacts, read own incidents, self-delete account."
     },
     "tables": [
       "profiles",
@@ -22,116 +24,148 @@
       "pings",
       "notifications",
       "contacts",
-      "logs"
+      "logs",
+      "seller_profiles",
+      "incident_messages",
+      "rate_limit_counters"
     ]
+  },
+  "deviceAuth": {
+    "header": "X-Device-Key",
+    "notes": "Required on every device-facing endpoint: /api/incidents/report, /api/incidents/log, /api/devices/register, PATCH /api/ping, and the legacy /api/incident + /api/incident/[id]/track POST endpoints. The value is the DEVICE_API_KEY env var configured on the server — request it from whoever manages the deployment. Compared with a constant-time check server-side."
+  },
+  "rateLimits": {
+    "/api/incidents/report": "10 / 60s per client IP",
+    "/api/incidents/log": "30 / 60s per incident_id",
+    "/api/incident (POST, legacy)": "10 / 60s per client IP",
+    "/api/incident/[id]/track (POST, legacy)": "30 / 60s per incident",
+    "/api/devices/register": "20 / 3600s per client IP",
+    "/api/ping (PATCH)": "30 / 60s per client IP",
+    "/api/chat": "20 / 300s per client IP",
+    "/api/contact (POST)": "5 / 3600s per client IP",
+    "/api/newsletter": "5 / 3600s per client IP"
   },
   "routes": [
     {
       "path": "/api/auth/callback",
-      "methods": [
-        "GET"
-      ],
+      "methods": ["GET"],
       "auth": "OAuth code exchange (no session yet)",
       "description": "OAuth callback. Exchanges `code` for a Supabase session and redirects to `next` (defaults to /). On failure redirects to /login?error=oauth.",
       "query": {
-        "code": "string (required) \u2014 OAuth code",
-        "next": "string (optional) \u2014 redirect path"
+        "code": "string (required) — OAuth code",
+        "next": "string (optional) — redirect path"
       },
       "responses": {
         "302": "Redirect to `${origin}${next}` on success, else `/login?error=oauth`"
       }
     },
+
     {
-      "path": "/api/ping",
-      "methods": [
-        "POST",
-        "PATCH"
-      ],
-      "auth": "POST: admin or authority. PATCH: unauthed (device acknowledgement).",
-      "description": "Authority/admin pings a device; device acks receipt. Triggers FCM push via sendPing() when notifications row exists.",
+      "path": "/api/devices/register",
+      "methods": ["POST"],
+      "auth": "Device (X-Device-Key required).",
+      "description": "Register or confirm a device_uuid belongs to a user_id. Idempotent: a matching (device_uuid, user_id) pair already on file is a no-op, not a duplicate. If device_uuid exists under a *different* user_id, ownership is deliberately not reassigned (a `note` field is returned instead) — an unauthenticated device call shouldn't be able to silently hijack a device's owner.",
       "schemas": {
         "postRequest": {
-          "device_id": "uuid"
-        },
-        "patchRequest": {
-          "ping_id": "uuid"
+          "device_uuid": "string (required) — the hardware's own id, not a uuid",
+          "user_id": "string (required) — driver's profiles.id; degrades to null if unresolvable, never fails the request"
         }
       },
       "responses": {
-        "201": "POST -> { data: { id, device_id, status:\"sent\", created_at } }",
-        "200": "PATCH -> { data: ping with status:\"received\" }",
-        "400": "{ error:\"invalid body\" }",
-        "401": "{ error:\"unauth\" }",
-        "403": "{ error:\"forbidden\" }"
-      },
-      "sideEffects": [
-        "Insert row into pings (POST).",
-        "Lookup latest notifications.device_firebase_id, send FCM (best-effort, errors logged not thrown).",
-        "Insert log row action=ping.sent, entity=device, entity_id=device_id, meta.ping_id."
-      ]
+        "200": "{ data: device, created: false, note?: string }",
+        "201": "{ data: device, created: true }",
+        "400": "{ error:\"invalid body\", issues }",
+        "401": "{ error:\"unauthorized\" } (bad/missing X-Device-Key)",
+        "429": "{ error:\"too many requests\" }"
+      }
     },
+
     {
-      "path": "/api/contact",
-      "methods": [
-        "POST",
-        "GET"
-      ],
-      "auth": "POST: public. GET: admin only.",
-      "description": "Public contact form submit; admin reads submissions.",
+      "path": "/api/incidents/report",
+      "methods": ["POST"],
+      "auth": "Device (X-Device-Key required).",
+      "description": "Current incident-creation endpoint. Sent once when an SOS/fall trigger first fires. Uses the service-role client server-side — RLS would otherwise block reading the row back after insert, since an anonymous device is neither the row's owner nor staff.",
       "schemas": {
         "postRequest": {
-          "name": "string min 1",
-          "email": "string email",
-          "message": "string min 1 max 2000"
+          "lat": "number (required, -90..90)",
+          "lng": "number (required, -180..180)",
+          "user_id": "string (optional) — degrades to null if unresolvable",
+          "device_id": "string (optional) — the hardware's own id, stored as-is",
+          "status": "string (optional) — received | reported | canceled, default reported",
+          "incident_type": "string (optional) — SOS Button | SOS Volume keys | SOS USB | SOS Fall Detected; anything else stored as null rather than rejected"
         }
       },
       "responses": {
-        "201": "{ data: contact row }",
-        "200": "GET -> { data: Contact[] (up to 100, newest first) }",
-        "400": "{ error:\"invalid body\" }",
-        "401/403": "GET only"
+        "201": "{ data: incident }",
+        "400": "{ error:\"invalid body\", issues }",
+        "401": "{ error:\"unauthorized\" }",
+        "429": "{ error:\"too many requests\" }"
       }
     },
     {
+      "path": "/api/incidents/log",
+      "methods": ["POST"],
+      "auth": "Device (X-Device-Key required).",
+      "description": "Location breadcrumb for an active incident, sent roughly every 10s while it's in progress.",
+      "schemas": {
+        "postRequest": {
+          "incident_id": "uuid (required) — id returned by /api/incidents/report",
+          "user_id": "string (optional)",
+          "device_id": "string (optional)",
+          "lat": "number (required, -90..90)",
+          "lng": "number (required, -180..180)"
+        }
+      },
+      "responses": {
+        "201": "{ data: incident_log }",
+        "400": "{ error:\"invalid body\", issues }",
+        "401": "{ error:\"unauthorized\" }",
+        "404": "{ error:\"incident not found\" }",
+        "429": "{ error:\"too many requests\" }"
+      }
+    },
+
+    {
       "path": "/api/incident",
-      "methods": [
-        "POST",
-        "GET"
-      ],
-      "auth": "POST: unauthed (device posts). GET: unauthed (RLS restricts reads).",
-      "description": "Devices post new incidents with lat/lng; consumers list by date.",
+      "methods": ["POST", "GET"],
+      "auth": "POST: device (X-Device-Key required). GET: admin or authority.",
+      "description": "Legacy create/list endpoint, predates /api/incidents/report + /api/incidents. Kept alive and hardened the same way for older mobile app builds; new integrations should use /api/incidents/report.",
       "schemas": {
         "postRequest": {
           "lng": "number [-180,180]",
           "lat": "number [-90,90]",
-          "device_uuid": "string optional"
+          "device_uuid": "string optional — the hardware's own id, stored as-is into device_id"
         }
       },
       "query": {
-        "date": "YYYY-MM-DD (optional) \u2014 filter occurred_at within UTC day"
+        "date": "YYYY-MM-DD (optional) — filter occurred_at within UTC day"
       },
       "responses": {
         "201": "POST -> { data: incident }",
         "200": "GET -> { data: Incident[] (limit 500, newest first) }",
         "400": "{ error:\"invalid body\" }",
+        "401": "POST: bad/missing X-Device-Key. GET: { error:\"unauth\" }",
+        "403": "GET: { error:\"forbidden\" }",
+        "429": "POST only — { error:\"too many requests\" }",
         "500": "DB error"
       },
-      "notes": "location stored as PostGIS WKT: `SRID=4326;POINT(lng lat)`."
+      "notes": "location kept in sync from lat/lng by a DB trigger; prefer lat/lng in bodies over raw WKT."
     },
     {
       "path": "/api/incidents",
-      "methods": [
-        "GET"
-      ],
+      "methods": ["GET"],
       "auth": "admin or authority only.",
-      "description": "Staff-only listing powering the admin/authority incidents dashboard. Joins profile + device. Realtime-capable: clients subscribe to postgres_changes on public.incidents and merge deltas into this slice.",
+      "description": "Staff-only listing powering the admin/authority incidents dashboard. Supports date/status/type/search/location-radius filters and sorting. Realtime-capable: clients subscribe to postgres_changes on public.incidents and merge deltas into this slice.",
       "query": {
-        "date": "YYYY-MM-DD (optional) \u2014 UTC calendar day, filters created_at",
-        "from": "ISO timestamp (optional) \u2014 inclusive lower bound when date not set",
-        "to": "ISO timestamp (optional) \u2014 inclusive upper bound when date not set",
-        "status": "\"received\" | \"reported\" (optional)",
-        "type": "\"button\" | \"volume_keys\" | \"usb\" | \"fall_detected\" (optional)",
-        "q": "free-text (optional) \u2014 matches id, fullname, phone",
+        "date": "YYYY-MM-DD (optional) — UTC calendar day, filters created_at",
+        "from": "ISO timestamp (optional) — inclusive lower bound when date not set",
+        "to": "ISO timestamp (optional) — inclusive upper bound when date not set",
+        "status": "\"received\" | \"reported\" | \"canceled\" (optional)",
+        "type": "IncidentType (optional)",
+        "q": "free-text (optional) — matches id, fullname, phone",
+        "sortBy": "\"created_at\" | \"occurred_at\" (optional, default created_at)",
+        "order": "\"asc\" | \"desc\" (optional, default desc)",
+        "lat, lng, radius": "number (optional, all three required together) — filter to incidents within radius meters",
         "limit": "1..500, default 200"
       },
       "responses": {
@@ -143,20 +177,18 @@
     },
     {
       "path": "/api/incident/[id]",
-      "methods": [
-        "GET"
-      ],
-      "auth": "None (RLS-gated).",
+      "methods": ["GET"],
+      "auth": "admin or authority only.",
       "responses": {
         "200": "{ data: incident }",
+        "401": "{ error:\"unauth\" }",
+        "403": "{ error:\"forbidden\" }",
         "404": "{ error:\"not found\" }"
       }
     },
     {
       "path": "/api/incident/[id]/status",
-      "methods": [
-        "PATCH"
-      ],
+      "methods": ["PATCH"],
       "auth": "admin or authority only.",
       "description": "Update incident.status and mark read=true. Writes audit log row.",
       "schemas": {
@@ -175,39 +207,166 @@
       ]
     },
     {
+      "path": "/api/incidents/[incident_id]/stop",
+      "methods": ["POST"],
+      "auth": "admin or authority only.",
+      "description": "Sends a stop-emergency FCM push to the incident's device. Notification body is `STOP_EMERGENCY-{device_uuid}`, matched exactly by the mobile app — not just display text.",
+      "responses": {
+        "200": "{ ok: true }",
+        "401": "{ error:\"unauth\" }",
+        "403": "{ error:\"forbidden\" }",
+        "404": "{ error:\"incident not found\" | \"device not found\" }",
+        "409": "{ error:\"incident has no device\" | \"device has no registered push token\" }"
+      },
+      "sideEffects": [
+        "Insert log row action=incident.stop_emergency, entity=incident."
+      ]
+    },
+    {
       "path": "/api/incident/[id]/track",
-      "methods": [
-        "POST",
-        "GET"
-      ],
-      "auth": "POST: unauthed (device posts breadcrumb; RLS restricts reads). GET: admin or authority only.",
-      "description": "Device-side location breadcrumb trail for an active incident (table: incident_logs). POST is called periodically by the reporting device while an emergency is in progress; GET returns the most recent 100 points for staff. The admin/authority monitor view also subscribes to INSERTs on incident_logs via Supabase Realtime for live tracking.",
+      "methods": ["POST", "GET"],
+      "auth": "POST: device (X-Device-Key required). GET: admin or authority only.",
+      "description": "Legacy breadcrumb endpoint, predates /api/incidents/log. Kept alive and hardened the same way for older mobile app builds; new integrations should use /api/incidents/log. The admin/authority monitor view subscribes to INSERTs on incident_logs via Supabase Realtime for live tracking.",
       "schemas": {
         "postRequest": {
           "lat": "number (-90..90)",
           "lng": "number (-180..180)",
-          "device_uuid": "string (optional) \u2014 used to resolve device_id if the incident has none"
+          "device_uuid": "string (optional) — used if the incident has no device_id yet"
         }
       },
       "responses": {
         "201": "{ data: incident_log } (POST)",
         "200": "{ data: incident_log[] } (GET)",
         "400": "{ error:\"invalid body\" }",
-        "401": "{ error:\"unauth\" } (GET only)",
-        "403": "{ error:\"forbidden\" } (GET only)",
-        "404": "{ error:\"incident not found\" } (POST only)"
+        "401": "POST: bad/missing X-Device-Key. GET: { error:\"unauth\" }",
+        "403": "GET only — { error:\"forbidden\" }",
+        "404": "{ error:\"incident not found\" } (POST only)",
+        "429": "POST only — { error:\"too many requests\" }"
       },
       "sideEffects": [
         "Inserts a row into incident_logs (incident_id, user_id, device_id, lat, lng).",
         "Triggers a Supabase Realtime postgres_changes INSERT event on incident_logs consumed by the monitor view."
       ]
     },
+
+    {
+      "path": "/api/ping",
+      "methods": ["POST", "PATCH"],
+      "auth": "POST: admin or authority. PATCH: device (X-Device-Key required).",
+      "description": "Authority/admin pings a device; device acks receipt. Triggers FCM push via sendPing() when the device has a registered token.",
+      "schemas": {
+        "postRequest": { "device_id": "uuid" },
+        "patchRequest": { "ping_id": "uuid" }
+      },
+      "responses": {
+        "201": "POST -> { data: ping, pushed: boolean, pushError?: string }",
+        "200": "PATCH -> { data: ping with status:\"received\" }",
+        "400": "{ error:\"invalid body\" }",
+        "401": "POST: { error:\"unauth\" }. PATCH: bad/missing X-Device-Key.",
+        "403": "POST only — { error:\"forbidden\" }",
+        "429": "PATCH only — { error:\"too many requests\" }"
+      },
+      "sideEffects": [
+        "Insert row into pings (POST).",
+        "Lookup device's registered FCM token, send push (best-effort, errors logged not thrown).",
+        "Insert log row action=ping.sent, entity=device, entity_id=device_id, meta.ping_id."
+      ]
+    },
+    {
+      "path": "/api/ping/start",
+      "methods": ["POST"],
+      "auth": "admin or authority only.",
+      "description": "Sends an FCM push telling a device to start its standard (non-emergency) location pings. Notification body is `STAR-{device_uuid}` — yes, \"STAR\" not \"START\", matched exactly by the mobile app.",
+      "schemas": { "postRequest": { "device_id": "uuid" } },
+      "responses": {
+        "200": "{ ok: true }",
+        "401": "{ error:\"unauth\" }",
+        "403": "{ error:\"forbidden\" }",
+        "404": "{ error:\"device not found\" }",
+        "409": "{ error:\"device has no registered push token\" }"
+      }
+    },
+    {
+      "path": "/api/ping/stop",
+      "methods": ["POST"],
+      "auth": "admin or authority only.",
+      "description": "Sends an FCM push telling a device to stop its standard location pings. Notification body is `STOP-{device_uuid}`, matched exactly by the mobile app.",
+      "schemas": { "postRequest": { "device_id": "uuid" } },
+      "responses": {
+        "200": "{ ok: true }",
+        "401": "{ error:\"unauth\" }",
+        "403": "{ error:\"forbidden\" }",
+        "404": "{ error:\"device not found\" }",
+        "409": "{ error:\"device has no registered push token\" }"
+      }
+    },
+
+    {
+      "path": "/api/contact",
+      "methods": ["POST", "GET"],
+      "auth": "POST: public (rate-limited). GET: admin only.",
+      "description": "Public contact form submit; admin reads submissions.",
+      "schemas": {
+        "postRequest": {
+          "name": "string min 1, max 200",
+          "email": "string email, max 320",
+          "message": "string min 1 max 2000"
+        }
+      },
+      "responses": {
+        "201": "{ data: contact row }",
+        "200": "GET -> { data: Contact[] (up to 100, newest first) }",
+        "400": "{ error:\"invalid body\" }",
+        "401/403": "GET only",
+        "429": "POST only — { error:\"too many requests, try again later\" }"
+      }
+    },
+    {
+      "path": "/api/newsletter",
+      "methods": ["POST"],
+      "auth": "public (rate-limited).",
+      "description": "Public footer newsletter signup. Upserts into Mailchimp via PUT with status_if_new — never re-subscribes someone who previously unsubscribed.",
+      "schemas": { "postRequest": { "email": "string email, max 320" } },
+      "responses": {
+        "200": "{ ok: true }",
+        "400": "{ error: \"Enter a valid email address.\" }",
+        "429": "{ error: \"Too many requests. Try again later.\" }",
+        "503": "{ error: \"Newsletter signup is not configured.\" } (missing MAILCHIMP_* env vars)"
+      }
+    },
+    {
+      "path": "/api/chat",
+      "methods": ["POST"],
+      "auth": "public (rate-limited).",
+      "description": "Backs the public support-chat widget. Proxies to the Anthropic Messages API with a fixed system prompt.",
+      "schemas": {
+        "postRequest": {
+          "messages": "Array<{ role: 'user'|'assistant', content: string (1-4000 chars) }>, 1-20 items"
+        }
+      },
+      "responses": {
+        "200": "{ reply: string }",
+        "400": "{ error:\"invalid body\" }",
+        "429": "{ error:\"too many requests, try again shortly\" }",
+        "502": "{ error:\"chat request failed\" }",
+        "503": "{ error: \"Chat is not configured yet. Set ANTHROPIC_API_KEY to enable it.\" }"
+      }
+    },
+    {
+      "path": "/api/geocode",
+      "methods": ["GET"],
+      "auth": "any signed-in user.",
+      "description": "Server-side proxy for Nominatim address search (sets a proper User-Agent per its usage policy, which a client-side fetch can't reliably do). Used by the seller-onboarding area picker.",
+      "query": { "q": "string (required, min 3 chars)" },
+      "responses": {
+        "200": "{ results: Array<{ label, lat, lng }> }",
+        "401": "{ error:\"unauth\" }"
+      }
+    },
+
     {
       "path": "/api/emergency-contact",
-      "methods": [
-        "GET",
-        "POST"
-      ],
+      "methods": ["GET", "POST"],
       "auth": "Any logged-in user.",
       "description": "List or create the calling user's emergency contacts.",
       "schemas": {
@@ -225,10 +384,7 @@
     },
     {
       "path": "/api/emergency-contact/[id]",
-      "methods": [
-        "PATCH",
-        "DELETE"
-      ],
+      "methods": ["PATCH", "DELETE"],
       "auth": "Any logged-in user; scoped to own rows via .eq(\"user_id\", user.id).",
       "schemas": {
         "patchRequest": {
@@ -244,14 +400,11 @@
     },
     {
       "path": "/api/admin/emergency-contact",
-      "methods": [
-        "GET",
-        "POST"
-      ],
+      "methods": ["GET", "POST"],
       "auth": "admin only.",
       "description": "Admin: list/insert any user's emergency contacts.",
       "query": {
-        "user_id": "uuid (optional) \u2014 filter by owner"
+        "user_id": "uuid (optional) — filter by owner"
       },
       "schemas": {
         "postRequest": {
@@ -263,17 +416,14 @@
       "responses": {
         "200": "GET -> { data: rows (newest first) }",
         "201": "POST -> { data: created row }",
-        "400": "{ error:\"invalid body\" }",
+        "400": "{ error:\"invalid body\" | \"invalid user_id\" }",
         "401": "{ error:\"unauth\" }",
         "403": "{ error:\"forbidden\" }"
       }
     },
     {
       "path": "/api/admin/emergency-contact/[id]",
-      "methods": [
-        "PATCH",
-        "DELETE"
-      ],
+      "methods": ["PATCH", "DELETE"],
       "auth": "admin only.",
       "description": "Admin: update or delete any emergency contact by id.",
       "schemas": {
@@ -289,21 +439,113 @@
         "403": "{ error:\"forbidden\" }"
       }
     },
+
+    {
+      "path": "/api/admin/users/invite",
+      "methods": ["POST"],
+      "auth": "admin only.",
+      "description": "Invite a new user by email (Supabase admin.inviteUserByEmail), seeding role/fullname/phone via user_metadata for the handle_new_user() trigger.",
+      "schemas": {
+        "postRequest": {
+          "email": "string email",
+          "fullname": "string",
+          "phone": "string (optional)",
+          "role": "rider | seller | authority | admin, default rider"
+        }
+      },
+      "responses": {
+        "200": "{ ok: true }",
+        "400": "{ error:\"invalid body\" }",
+        "401": "{ error:\"unauth\" }",
+        "403": "{ error:\"forbidden\" }",
+        "500": "{ error:\"failed to send invite\" }"
+      }
+    },
+    {
+      "path": "/api/admin/users/[id]",
+      "methods": ["PATCH"],
+      "auth": "admin only.",
+      "description": "Edit a user's fullname/phone.",
+      "schemas": { "patchRequest": { "fullname": "string min 1", "phone": "string min 1, nullable" } },
+      "responses": {
+        "200": "{ ok: true, profile }",
+        "400": "{ error:\"invalid body\" }",
+        "401": "{ error:\"unauth\" }",
+        "403": "{ error:\"forbidden\" }"
+      }
+    },
+    {
+      "path": "/api/admin/users/[id]/role",
+      "methods": ["POST"],
+      "auth": "admin only.",
+      "description": "Change a user's role. Admins can't change their own role (lockout guard).",
+      "schemas": { "postRequest": { "role": "rider | seller | authority | admin" } },
+      "responses": {
+        "200": "{ ok: true, profile }",
+        "403": "{ error:\"forbidden\" }",
+        "409": "{ error:\"cannot change your own role\" }"
+      }
+    },
+    {
+      "path": "/api/admin/users/[id]/status",
+      "methods": ["POST"],
+      "auth": "admin only.",
+      "description": "Change a user's status (Active/Inactive/Deleted). Admins can't deactivate/delete themselves.",
+      "schemas": { "postRequest": { "status": "Active | Inactive | Deleted" } },
+      "responses": {
+        "200": "{ ok: true, profile }",
+        "403": "{ error:\"forbidden\" }",
+        "409": "{ error:\"cannot change your own status\" }"
+      }
+    },
+    {
+      "path": "/api/admin/users/[id]/reset-password",
+      "methods": ["POST"],
+      "auth": "admin only.",
+      "description": "Sends a password-reset email to the user via the Supabase admin API.",
+      "responses": {
+        "200": "{ ok: true }",
+        "404": "{ error:\"user has no email\" }",
+        "500": "{ error:\"failed to look up user\" | \"failed to send reset email\" }"
+      }
+    },
+
+    {
+      "path": "/api/seller/onboarding/complete",
+      "methods": ["POST"],
+      "auth": "rider or seller only (session).",
+      "description": "Promotes the caller to the 'seller' role once their seller_profiles row has all required fields. Uses the service-role client deliberately — profiles.role is not something a session client should ever set directly.",
+      "responses": {
+        "200": "{ ok: true }",
+        "400": "{ error:\"Finish both onboarding steps before submitting.\" }",
+        "403": "{ error:\"This role can't start seller onboarding.\" }"
+      }
+    },
+    {
+      "path": "/api/account/delete",
+      "methods": ["POST"],
+      "auth": "any signed-in user; acts only on the caller's own id.",
+      "description": "Self-service, irreversible account deletion. Hard-deletes the auth user, cascading to profile/emergency_contacts/subscriptions/seller_profiles/sent incident_messages and the profile_images storage folder. devices/incidents/logs are anonymized (user_id set null), not deleted, per the schema's existing retention design.",
+      "responses": {
+        "200": "{ ok: true }",
+        "401": "{ error:\"unauth\" }",
+        "500": "{ error:\"Could not delete your account. Try again.\" }"
+      }
+    },
+
     {
       "path": "/api/stripe/webhook",
-      "methods": [
-        "POST"
-      ],
+      "methods": ["POST"],
       "auth": "Stripe signature header (STRIPE_WEBHOOK_SECRET).",
       "description": "Handles checkout.session.completed, customer.subscription.{created,updated,deleted}. Upserts subscriptions table on conflict subscription_id; logs all events.",
       "headers": {
         "stripe-signature": "required"
       },
       "handledEvents": [
-        "checkout.session.completed \u2014 retrieve subscription via session.subscription, upsert",
-        "customer.subscription.created \u2014 upsert",
-        "customer.subscription.updated \u2014 upsert",
-        "customer.subscription.deleted \u2014 update status=canceled"
+        "checkout.session.completed — retrieve subscription via session.subscription, upsert",
+        "customer.subscription.created — upsert",
+        "customer.subscription.updated — upsert",
+        "customer.subscription.deleted — update status=canceled"
       ],
       "metadata": "subscription.metadata.supabase_user_id MUST be set at checkout; otherwise row skipped.",
       "responses": {
@@ -325,13 +567,18 @@
       "STRIPE_PRICE_ID",
       "FIREBASE_PROJECT_ID",
       "FIREBASE_CLIENT_EMAIL",
-      "FIREBASE_PRIVATE_KEY"
+      "FIREBASE_PRIVATE_KEY",
+      "DEVICE_API_KEY"
     ],
-    "optional": []
+    "optional": [
+      "ANTHROPIC_API_KEY",
+      "MAILCHIMP_API_KEY",
+      "MAILCHIMP_AUDIENCE_ID",
+      "NEXT_PUBLIC_SITE_URL"
+    ]
   },
-  "nextSteps": [
-    "Add a script `npm run dev:debug` that runs with NEXT_DEBUG_LOGS=1 for FCM send failures.",
-    "Add rate-limit middleware on /api/incident POST (device endpoint).",
-    "Schema: confirm subscription_id unique index exists for onConflict to work."
+  "notes": [
+    "incidents.device_id / incident_logs.device_id are text columns holding the hardware's own device_uuid directly — not a uuid FK to devices.id, despite the column name.",
+    "FCM push notification bodies are a client-parsed contract, not just display text: stop standard pings = 'STOP-{uuid}', start standard pings = 'STAR-{uuid}' (not a typo), stop emergency = 'STOP_EMERGENCY-{uuid}'."
   ]
 }

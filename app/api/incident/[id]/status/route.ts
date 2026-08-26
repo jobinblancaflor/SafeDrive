@@ -28,7 +28,10 @@ export async function PATCH(req: Request, ctx: { params: { id: string } }) {
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    console.error("incident/[id]/status failed:", error);
+    return NextResponse.json({ error: "failed to update status" }, { status: 500 });
+  }
 
   await supabase.from("logs").insert({
     actor: user.id,

@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { touchDevice } from "@/lib/incident-ingest";
+import { requireDeviceKey } from "@/lib/device-auth";
+import { checkRateLimit, clientIp } from "@/lib/rate-limit";
 
 const Body = z.object({
   lng: z.number().min(-180).max(180),
@@ -8,28 +12,35 @@ const Body = z.object({
   device_uuid: z.string().optional(),
 });
 
-// Devices post incidents directly — no user session required from the device.
-// This mirrors the trust model of POST /api/incident/[id]/track and the
-// incident_logs insert policy: no API key, RLS ("incident insert" with check
-// (true)) allows the anonymous write, and RLS on select restricts who can
-// read incidents back (staff or the incident's own user).
+// Legacy create endpoint — POST /api/incidents/report is the current one;
+// this stays alive (and hardened the same way) for whatever mobile app
+// builds still call it. No session required from the device, so this uses
+// the service-role client: RLS's SELECT policy ("incident read": staff or
+// the row's own owner) blocks even reading back the row this request just
+// inserted, which without bypassing RLS surfaces as the insert itself
+// having failed.
 export async function POST(req: Request) {
+  const authError = requireDeviceKey(req);
+  if (authError) return authError;
+
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ error: "invalid body" }, { status: 400 });
   }
   const { lng, lat, device_uuid } = parsed.data;
 
-  const supabase = createClient();
-  let deviceId: string | null = null;
-  if (device_uuid) {
-    const { data } = await supabase
-      .from("devices")
-      .select("id")
-      .eq("device_uuid", device_uuid)
-      .single();
-    deviceId = data?.id ?? null;
+  const supabase = createAdminClient();
+
+  const allowed = await checkRateLimit(supabase, `incident.create:${clientIp(req)}`, {
+    max: 10,
+    windowSeconds: 60,
+  });
+  if (!allowed) {
+    return NextResponse.json({ error: "too many requests" }, { status: 429 });
   }
+
+  const deviceId = device_uuid?.trim() || null;
+  await touchDevice(supabase, deviceId, null);
 
   const { data, error } = await supabase
     .from("incidents")

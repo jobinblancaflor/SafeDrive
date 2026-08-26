@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { sendPing, describeFcmError } from "@/lib/fcm";
+import { requireDeviceKey } from "@/lib/device-auth";
+import { checkRateLimit, clientIp } from "@/lib/rate-limit";
 
 const Body = z.object({ device_id: z.string().uuid() });
 
@@ -27,7 +30,10 @@ export async function POST(req: Request) {
     .insert({ device_id: parsed.data.device_id, status: "sent" })
     .select()
     .single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    console.error("POST /api/ping insert failed:", error);
+    return NextResponse.json({ error: "failed to record ping" }, { status: 500 });
+  }
 
   // Look up the device's registered FCM token and send (best-effort — a
   // missing/failed push doesn't fail the ping record itself, but we report
@@ -64,15 +70,29 @@ export async function POST(req: Request) {
 }
 
 // Device acknowledges a ping — no session required from the device, same
-// trust model as POST /api/incident and POST /api/incident/[id]/track. RLS
-// ("ping update" with using (true)) allows the anonymous write.
+// trust model as the incident ingest endpoints, so this uses the
+// service-role client: RLS's SELECT policy on pings only allows the
+// device's own owner or staff to read it back, which an anonymous ack
+// request is neither.
 export async function PATCH(req: Request) {
+  const authError = requireDeviceKey(req);
+  if (authError) return authError;
+
   const parsed = z.object({ ping_id: z.string().uuid() }).safeParse(
     await req.json().catch(() => null),
   );
   if (!parsed.success) return NextResponse.json({ error: "invalid body" }, { status: 400 });
 
-  const supabase = createClient();
+  const supabase = createAdminClient();
+
+  const allowed = await checkRateLimit(supabase, `ping.ack:${clientIp(req)}`, {
+    max: 30,
+    windowSeconds: 60,
+  });
+  if (!allowed) {
+    return NextResponse.json({ error: "too many requests" }, { status: 429 });
+  }
+
   const { data, error } = await supabase
     .from("pings")
     .update({ status: "received" })
