@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveUserId, touchDevice } from "@/lib/incident-ingest";
+import { requireDeviceKey } from "@/lib/device-auth";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 // Incident location breadcrumb (IncidentLogRequest) — sent every ~10s while
 // an incident is active. No session required from the device, so this uses
@@ -19,6 +21,9 @@ const Body = z.object({
 });
 
 export async function POST(req: Request) {
+  const authError = requireDeviceKey(req);
+  if (authError) return authError;
+
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ error: "invalid body", issues: parsed.error.issues }, { status: 400 });
@@ -34,6 +39,18 @@ export async function POST(req: Request) {
     .maybeSingle();
   if (incidentErr || !incident) {
     return NextResponse.json({ error: "incident not found" }, { status: 404 });
+  }
+
+  // Keyed per-incident rather than per-IP: breadcrumbs arrive ~every 10s
+  // for a genuinely active incident (~6/min), so allow a generous buffer
+  // above that rather than a flat per-IP cap that'd be wrong for both a
+  // single active incident and multiple concurrent ones behind the same IP.
+  const allowed = await checkRateLimit(supabase, `incidents.log:${body.incident_id}`, {
+    max: 30,
+    windowSeconds: 60,
+  });
+  if (!allowed) {
+    return NextResponse.json({ error: "too many requests" }, { status: 429 });
   }
 
   const userId = await resolveUserId(supabase, body.user_id);

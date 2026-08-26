@@ -10,7 +10,12 @@ const Body = z.object({
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
-  const userId = searchParams.get("user_id");
+  const userIdParam = searchParams.get("user_id");
+  const userIdCheck = userIdParam ? z.string().uuid().safeParse(userIdParam) : null;
+  if (userIdParam && !userIdCheck?.success) {
+    return NextResponse.json({ error: "invalid user_id" }, { status: 400 });
+  }
+  const userId = userIdCheck?.data ?? null;
 
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -28,7 +33,10 @@ export async function GET(req: Request) {
   if (userId) q = q.eq("user_id", userId);
 
   const { data, error } = await q;
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    console.error("admin/emergency-contact failed:", error);
+    return NextResponse.json({ error: "request failed" }, { status: 500 });
+  }
   return NextResponse.json({ data });
 }
 
@@ -51,6 +59,9 @@ export async function POST(req: Request) {
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    console.error("admin/emergency-contact failed:", error);
+    return NextResponse.json({ error: "request failed" }, { status: 500 });
+  }
   return NextResponse.json({ data }, { status: 201 });
 }

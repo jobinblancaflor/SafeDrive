@@ -1,15 +1,26 @@
 import { NextResponse } from "next/server";
 import { createHash } from "crypto";
 import { z } from "zod";
+import { createClient } from "@/lib/supabase/server";
+import { checkRateLimit, clientIp } from "@/lib/rate-limit";
 
 const Body = z.object({
-  email: z.string().email(),
+  email: z.string().email().max(320),
 });
 
 export async function POST(req: Request) {
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ error: "Enter a valid email address." }, { status: 400 });
+  }
+
+  const supabase = createClient();
+  const allowed = await checkRateLimit(supabase, `newsletter:${clientIp(req)}`, {
+    max: 5,
+    windowSeconds: 3600,
+  });
+  if (!allowed) {
+    return NextResponse.json({ error: "Too many requests. Try again later." }, { status: 429 });
   }
 
   const apiKey = process.env.MAILCHIMP_API_KEY;

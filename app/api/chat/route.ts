@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { createClient } from "@/lib/supabase/server";
+import { checkRateLimit, clientIp } from "@/lib/rate-limit";
 
 const Body = z.object({
   messages: z
@@ -36,6 +38,18 @@ export async function POST(req: Request) {
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ error: "invalid body" }, { status: 400 });
+  }
+
+  // No auth on this route (it backs a public support-chat widget), so this
+  // is the only thing standing between it and someone scripting requests
+  // against the Anthropic API on this app's dime.
+  const supabase = createClient();
+  const allowed = await checkRateLimit(supabase, `chat:${clientIp(req)}`, {
+    max: 20,
+    windowSeconds: 300,
+  });
+  if (!allowed) {
+    return NextResponse.json({ error: "too many requests, try again shortly" }, { status: 429 });
   }
 
   try {

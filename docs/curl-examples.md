@@ -8,20 +8,26 @@ export BASE_URL="http://localhost:3000"
 
 ## Authentication
 
-Authed endpoints rely on the Supabase session cookie (`sb-<project>-auth-token`). Two ways to set it:
+Two separate auth mechanisms, depending on who's calling:
 
-1. Sign in via the web app, then copy the cookie value from DevTools → Application → Cookies.
-2. Use Supabase directly to mint a token, then pass it.
+**Staff/admin endpoints** rely on the Supabase session cookie (`sb-<project>-auth-token`):
 
 ```bash
 # Sample — replace with your real cookie
 export AUTH_COOKIE='sb-abcdefgh-auth-token=eyJhbGciOiJIUzI1NiIs...'
-
-# Helper flag for all examples below:
 AUTH=(-H "Cookie: $AUTH_COOKIE")
 ```
 
-Every example below uses `${AUTH[@]}` when the endpoint requires a session.
+**Device-facing endpoints** (mobile app → backend: incident report/log, device registration, ping ack) require a shared secret sent as the `X-Device-Key` header instead — there's no user session on the device. The value is the `DEVICE_API_KEY` env var configured on the server; get it from whoever manages the deployment, it is not something the client generates.
+
+```bash
+export DEVICE_KEY="the DEVICE_API_KEY value"
+DEVICE=(-H "X-Device-Key: $DEVICE_KEY")
+```
+
+A request to a device endpoint without a valid key gets `401`. A request without `DEVICE_API_KEY` configured on the server at all gets `503` (fails closed, not open).
+
+Every example below uses `${AUTH[@]}` or `${DEVICE[@]}` as appropriate.
 
 ---
 
@@ -78,45 +84,79 @@ curl "${AUTH[@]}" -X DELETE "$BASE_URL/api/admin/emergency-contact/7f3c0000-0000
 
 ---
 
-## Incidents
+## Device registration
 
 ```bash
-# Device-side ingestion — anonymous, no auth
-curl -X POST "$BASE_URL/api/incident" \
+# Register (or confirm) a device belongs to a user. Idempotent: calling
+# again with the same device_uuid + user_id is a no-op, not a duplicate.
+curl "${DEVICE[@]}" -X POST "$BASE_URL/api/devices/register" \
   -H "Content-Type: application/json" \
-  -d '{"lng":121.0,"lat":14.6,"device_uuid":"dev-uuid-001"}'
+  -d '{"device_uuid":"bff60f44be2a18fe","user_id":"RIDER_UUID"}'
+```
 
-# List incidents for a date (admin/authority only) — UTC date, returns up to 500
-curl "${AUTH[@]}" "$BASE_URL/api/incident?date=2026-07-27"
+Rate limit: 20 requests / hour per IP.
 
-# List most recent (no date filter)
-curl "${AUTH[@]}" "$BASE_URL/api/incident"
+---
+
+## Incidents — current endpoints
+
+These are what the mobile app should call going forward. `user_id`/`device_id` that don't resolve to a real driver/device never fail the request — the report still gets recorded, just without that attribution.
+
+```bash
+# Step 1: initial incident report (SOS/fall trigger fires)
+curl "${DEVICE[@]}" -X POST "$BASE_URL/api/incidents/report" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "lat": 14.6091,
+    "lng": 121.0223,
+    "user_id": "RIDER_UUID",
+    "device_id": "bff60f44be2a18fe",
+    "incident_type": "SOS Button"
+  }'
+# -> 201 { "data": { "id": "INCIDENT_UUID", ... } }  ← keep this id for step 2
+
+# Step 2: location breadcrumb, sent every ~10s while the incident is active
+curl "${DEVICE[@]}" -X POST "$BASE_URL/api/incidents/log" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "incident_id": "INCIDENT_UUID",
+    "user_id": "RIDER_UUID",
+    "device_id": "bff60f44be2a18fe",
+    "lat": 14.6095,
+    "lng": 121.0228
+  }'
+```
+
+Valid `incident_type` values: `SOS Button`, `SOS Volume keys`, `SOS USB`, `SOS Fall Detected`. `status` defaults to `reported` if omitted.
+
+Rate limits: `report` — 10 requests / min per IP. `log` — 30 requests / min per incident (comfortably above the ~10s cadence).
+
+```bash
+# List incidents for a date (admin/authority only) — UTC date
+curl "${AUTH[@]}" "$BASE_URL/api/incidents?date=2026-07-27"
 
 # Fetch one incident
 curl "${AUTH[@]}" "$BASE_URL/api/incident/INCIDENT_UUID"
 
-# Mark an incident reported (admin/authority)
+# Mark an incident reported / reopen it (admin/authority)
 curl "${AUTH[@]}" -X PATCH "$BASE_URL/api/incident/INCIDENT_UUID/status" \
   -H "Content-Type: application/json" \
   -d '{"status":"reported"}'
-
-# Reopen an incident (received again)
-curl "${AUTH[@]}" -X PATCH "$BASE_URL/api/incident/INCIDENT_UUID/status" \
-  -H "Content-Type: application/json" \
-  -d '{"status":"received"}'
 ```
 
----
+### Legacy endpoints (still live, hardened the same way)
 
-## Incident live tracking (breadcrumb trail)
+`POST /api/incident` and `POST /api/incident/:id/track` predate `/api/incidents/report` and `/api/incidents/log` and use different field names (`device_uuid` instead of `device_id`, no `user_id`/`incident_type`/`status`). Still work, still require `X-Device-Key` and are rate-limited the same way — kept alive for whatever mobile app builds still call them, but new integrations should use the endpoints above.
 
 ```bash
-# Device posts a location breadcrumb while the incident is active — anonymous, no auth
-curl -X POST "$BASE_URL/api/incident/INCIDENT_UUID/track" \
+curl "${DEVICE[@]}" -X POST "$BASE_URL/api/incident" \
+  -H "Content-Type: application/json" \
+  -d '{"lng":121.0,"lat":14.6,"device_uuid":"dev-uuid-001"}'
+
+curl "${DEVICE[@]}" -X POST "$BASE_URL/api/incident/INCIDENT_UUID/track" \
   -H "Content-Type: application/json" \
   -d '{"lat":14.6,"lng":121.0,"device_uuid":"dev-uuid-001"}'
 
-# Staff reads the most recent 100 points (admin/authority only)
 curl "${AUTH[@]}" "$BASE_URL/api/incident/INCIDENT_UUID/track"
 ```
 
@@ -130,10 +170,17 @@ curl "${AUTH[@]}" -X POST "$BASE_URL/api/ping" \
   -H "Content-Type: application/json" \
   -d '{"device_id":"DEVICE_UUID"}'
 
-# Device callback — mark ping received
-curl -X PATCH "$BASE_URL/api/ping" \
+# Device callback — mark ping received (requires X-Device-Key)
+curl "${DEVICE[@]}" -X PATCH "$BASE_URL/api/ping" \
   -H "Content-Type: application/json" \
   -d '{"ping_id":"PING_UUID"}'
+
+# Tell a device to start/stop its standard (non-emergency) location pings —
+# admin/authority, session-authenticated like the send-ping call above
+curl "${AUTH[@]}" -X POST "$BASE_URL/api/ping/start" \
+  -H "Content-Type: application/json" -d '{"device_id":"DEVICE_UUID"}'
+curl "${AUTH[@]}" -X POST "$BASE_URL/api/ping/stop" \
+  -H "Content-Type: application/json" -d '{"device_id":"DEVICE_UUID"}'
 ```
 
 ---
@@ -149,6 +196,32 @@ curl -X POST "$BASE_URL/api/contact" \
 # Admin reads latest 100
 curl "${AUTH[@]}" "$BASE_URL/api/contact"
 ```
+
+Rate limit: 5 requests / hour per IP.
+
+---
+
+## Newsletter
+
+```bash
+curl -X POST "$BASE_URL/api/newsletter" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"curious@example.com"}'
+```
+
+Rate limit: 5 requests / hour per IP. Returns `503` if `MAILCHIMP_API_KEY`/`MAILCHIMP_AUDIENCE_ID` aren't configured.
+
+---
+
+## Support chat
+
+```bash
+curl -X POST "$BASE_URL/api/chat" \
+  -H "Content-Type: application/json" \
+  -d '{"messages":[{"role":"user","content":"How does the fall detection work?"}]}'
+```
+
+No auth (backs a public widget) — rate limit: 20 requests / 5 min per IP. Returns `503` if `ANTHROPIC_API_KEY` isn't configured.
 
 ---
 
@@ -181,17 +254,18 @@ curl -X POST "$BASE_URL/api/stripe/webhook" \
 ```bash
 # 1. Sign in via the web app and capture cookie
 export AUTH_COOKIE='sb-...=...'
+export DEVICE_KEY='...'
 
 # 2. Confirm session: any authed endpoint should return 200
 curl "${AUTH[@]}" "$BASE_URL/api/emergency-contact"
 
 # 3. Trigger an incident as a device
-curl -X POST "$BASE_URL/api/incident" \
+curl "${DEVICE[@]}" -X POST "$BASE_URL/api/incidents/report" \
   -H "Content-Type: application/json" \
-  -d '{"lng":121.0,"lat":14.6,"device_uuid":"dev-uuid-001"}'
+  -d '{"lat":14.6,"lng":121.0,"device_id":"dev-uuid-001","incident_type":"SOS Button"}'
 
 # 4. List it back as admin
-curl "${AUTH[@]}" "$BASE_URL/api/incident"
+curl "${AUTH[@]}" "$BASE_URL/api/incidents"
 
 # 5. Mark reported
 curl "${AUTH[@]}" -X PATCH "$BASE_URL/api/incident/INCIDENT_UUID/status" \
@@ -208,15 +282,18 @@ curl "${AUTH[@]}" -X POST "$BASE_URL/api/ping" \
 
 ## Status codes
 
-| Code | Meaning                                                |
-|------|--------------------------------------------------------|
-| 200  | OK                                                     |
-| 201  | Created                                                |
-| 302  | Redirect (auth callback only)                          |
-| 400  | Invalid body — Zod validation failed                   |
-| 401  | Unauthenticated — set the Supabase session cookie      |
-| 403  | Forbidden — role lacks permission for this resource    |
-| 404  | Resource not found                                      |
-| 500  | Server or upstream (Supabase / Stripe / FCM) failure   |
+| Code | Meaning                                                       |
+|------|----------------------------------------------------------------|
+| 200  | OK                                                             |
+| 201  | Created                                                        |
+| 302  | Redirect (auth callback only)                                  |
+| 400  | Invalid body — Zod validation failed                           |
+| 401  | Unauthenticated/unauthorized — missing session cookie or `X-Device-Key` |
+| 403  | Forbidden — role lacks permission for this resource            |
+| 404  | Resource not found                                             |
+| 429  | Rate limited — back off and retry after the window passes      |
+| 500  | Server or upstream (Supabase / Stripe / FCM / Anthropic) failure |
+| 502  | Upstream service (FCM / Anthropic / Mailchimp) rejected the request |
+| 503  | Endpoint not configured (missing required server env var)      |
 
-Successful responses are JSON: `{ data: ... }` or `{ ok: true }` or `{ received: true }`. Error responses: `{ error: string }`.
+Successful responses are JSON: `{ data: ... }` or `{ ok: true }` or `{ received: true }`. Error responses: `{ error: string }` (sometimes with a `details`/`issues` field for validation errors).

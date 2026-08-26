@@ -1,18 +1,40 @@
 {
   "name": "Secure Signal Admin API",
-  "version": "0.1.0",
-  "description": "Next.js Route Handlers backing the Secure Signal admin/authority dashboard. All authenticated routes rely on Supabase SSR cookies — include the session cookie set by /login on every request.",
+  "version": "0.2.0",
+  "description": "Next.js Route Handlers backing the Secure Signal admin/authority dashboard and mobile app. Staff/rider routes rely on Supabase SSR cookies. Device-facing routes (mobile app → backend) use a separate shared-secret header instead, since there's no user session on the device.",
   "baseUrl": "http://localhost:3000",
   "authentication": {
-    "type": "supabase_cookie",
-    "notes": "Sign in via the web app or POST to /auth (Supabase hosted). The browser automatically attaches the sb-access-token cookie. Server-only routes verify it via createServerClient() and read role from public.profiles."
+    "session": {
+      "type": "supabase_cookie",
+      "notes": "Sign in via the web app or POST to /auth (Supabase hosted). The browser automatically attaches the sb-access-token cookie. Server-only routes verify it via createServerClient() and read role from public.profiles."
+    },
+    "device": {
+      "type": "shared_secret_header",
+      "header": "X-Device-Key",
+      "notes": "Required on every device-facing endpoint (incident report/log, device register, ping ack, and the legacy incident/track equivalents). The value is the DEVICE_API_KEY env var configured on the server — request it from whoever manages the deployment; it is not something the client derives or generates. Missing/wrong key → 401. Server has no key configured → 503 (fails closed)."
+    }
+  },
+  "rateLimits": {
+    "notes": "Fixed-window, per the key shown. Exceeding it returns 429 { error: \"too many requests\" }. All limits fail open on infra error — a rate-limiter outage never blocks a legitimate request.",
+    "/api/incidents/report": "10 requests / 60s per client IP",
+    "/api/incidents/log": "30 requests / 60s per incident_id",
+    "/api/incident (POST, legacy)": "10 requests / 60s per client IP",
+    "/api/incident/{id}/track (POST, legacy)": "30 requests / 60s per incident",
+    "/api/devices/register": "20 requests / 3600s per client IP",
+    "/api/ping (PATCH)": "30 requests / 60s per client IP",
+    "/api/chat": "20 requests / 300s per client IP",
+    "/api/contact": "5 requests / 3600s per client IP",
+    "/api/newsletter": "5 requests / 3600s per client IP"
   },
   "commonErrors": {
-    "400": "Validation failed — body did not match the Zod schema.",
-    "401": "Unauthenticated — no Supabase session.",
+    "400": "Validation failed — body did not match the Zod schema. Body includes an `issues` array with details on most routes.",
+    "401": "Unauthenticated/unauthorized — no Supabase session, or missing/wrong X-Device-Key.",
     "403": "Forbidden — signed in but role not allowed for this resource.",
     "404": "Resource not found.",
-    "500": "Server or upstream (Supabase/Stripe/FCM) error. Body shape: { error: string }."
+    "429": "Rate limited — see rateLimits above. Back off and retry after the window.",
+    "500": "Server or upstream (Supabase/Stripe/FCM) error. Body shape: { error: string }.",
+    "502": "Upstream service (FCM/Anthropic/Mailchimp) rejected the request.",
+    "503": "Endpoint not configured — a required server env var is missing (DEVICE_API_KEY, ANTHROPIC_API_KEY, MAILCHIMP_API_KEY/MAILCHIMP_AUDIENCE_ID depending on route)."
   },
   "endpoints": [
     {
@@ -33,7 +55,7 @@
       "method": "GET",
       "path": "/api/emergency-contact",
       "description": "List the signed-in user's emergency contacts.",
-      "auth": "authenticated (self only)",
+      "auth": "session (self only)",
       "responses": {
         "200": { "data": "EmergencyContact[] (id, user_id, fullname, phone, created_at)" }
       }
@@ -42,7 +64,7 @@
       "method": "POST",
       "path": "/api/emergency-contact",
       "description": "Add an emergency contact for the signed-in user.",
-      "auth": "authenticated",
+      "auth": "session",
       "body": {
         "fullname": "string (required, min 1)",
         "phone": "string (required, min 5)"
@@ -55,7 +77,7 @@
       "method": "PATCH",
       "path": "/api/emergency-contact/{id}",
       "description": "Update one of the signed-in user's emergency contacts.",
-      "auth": "authenticated (owner only)",
+      "auth": "session (owner only)",
       "pathParams": { "id": "uuid" },
       "body": {
         "fullname": "string (optional, min 1)",
@@ -69,32 +91,138 @@
       "method": "DELETE",
       "path": "/api/emergency-contact/{id}",
       "description": "Remove an emergency contact.",
-      "auth": "authenticated (owner only)",
+      "auth": "session (owner only)",
       "pathParams": { "id": "uuid" },
       "responses": {
         "200": { "ok": true }
       }
     },
+    {
+      "method": "GET",
+      "path": "/api/admin/emergency-contact",
+      "description": "List emergency contacts, optionally filtered to one rider.",
+      "auth": "session (admin only)",
+      "query": { "user_id": "uuid (optional)" },
+      "responses": { "200": { "data": "EmergencyContact[]" } }
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/emergency-contact",
+      "description": "Add an emergency contact on behalf of any rider.",
+      "auth": "session (admin only)",
+      "body": {
+        "user_id": "uuid (required)",
+        "fullname": "string (required, min 1)",
+        "phone": "string (required, min 5)"
+      },
+      "responses": { "201": { "data": "EmergencyContact" } }
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/admin/emergency-contact/{id}",
+      "description": "Update any rider's emergency contact.",
+      "auth": "session (admin only)",
+      "pathParams": { "id": "uuid" },
+      "body": { "fullname": "string (optional)", "phone": "string (optional)" },
+      "responses": { "200": { "data": "EmergencyContact" } }
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/admin/emergency-contact/{id}",
+      "description": "Remove any rider's emergency contact.",
+      "auth": "session (admin only)",
+      "pathParams": { "id": "uuid" },
+      "responses": { "200": { "ok": true } }
+    },
+
+    {
+      "method": "POST",
+      "path": "/api/devices/register",
+      "description": "Register (or confirm) that a device_uuid belongs to a user_id. Idempotent — a matching (device_uuid, user_id) pair already on file is a no-op, not a duplicate. If device_uuid exists under a *different* user_id, ownership is deliberately NOT reassigned (returned with a `note` field instead) — that's not something an unauthenticated device call should be able to trigger silently.",
+      "auth": "device (X-Device-Key required)",
+      "body": {
+        "device_uuid": "string (required) — the hardware's own id, not a uuid",
+        "user_id": "string (required) — the driver's profiles.id; degrades to null if it doesn't resolve to a real profile, never fails the request"
+      },
+      "responses": {
+        "200": { "data": "Device", "created": false, "note": "string (present only when device_uuid belongs to a different user)" },
+        "201": { "data": "Device", "created": true }
+      }
+    },
+
+    {
+      "method": "POST",
+      "path": "/api/incidents/report",
+      "description": "Current incident-creation endpoint. Sent once when an SOS/fall trigger first fires.",
+      "auth": "device (X-Device-Key required)",
+      "body": {
+        "lat": "number (required, -90..90)",
+        "lng": "number (required, -180..180)",
+        "user_id": "string (optional) — driver id; degrades to null if unresolvable",
+        "device_id": "string (optional) — the hardware's own id, stored as-is",
+        "status": "string (optional) — 'received' | 'reported' | 'canceled', defaults to 'reported'",
+        "incident_type": "string (optional) — 'SOS Button' | 'SOS Volume keys' | 'SOS USB' | 'SOS Fall Detected'; anything else is stored as null rather than rejected"
+      },
+      "responses": {
+        "201": { "data": "Incident" }
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/incidents/log",
+      "description": "Location breadcrumb for an active incident. Sent roughly every 10 seconds while the incident is in progress.",
+      "auth": "device (X-Device-Key required)",
+      "body": {
+        "incident_id": "uuid (required) — id returned by /api/incidents/report",
+        "user_id": "string (optional)",
+        "device_id": "string (optional)",
+        "lat": "number (required, -90..90)",
+        "lng": "number (required, -180..180)"
+      },
+      "responses": {
+        "201": { "data": "IncidentLog" },
+        "404": { "error": "incident not found" }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/incidents",
+      "description": "List incidents for the dashboard. Filterable by date/status/type/search/location radius, sortable.",
+      "auth": "session (admin/authority)",
+      "query": {
+        "date": "YYYY-MM-DD (UTC) (optional)",
+        "from": "ISO timestamp (optional)",
+        "to": "ISO timestamp (optional)",
+        "status": "'received' | 'reported' | 'canceled' (optional)",
+        "type": "IncidentType (optional)",
+        "q": "string — free-text search across id/fullname/phone (optional)",
+        "sortBy": "'created_at' | 'occurred_at' (optional, default created_at)",
+        "order": "'asc' | 'desc' (optional, default desc)",
+        "lat, lng, radius": "number — filter to incidents within radius meters of (lat,lng) (optional, all three required together)",
+        "limit": "number (optional, default 200, max 500)"
+      },
+      "responses": { "200": { "incidents": "Incident[]", "total": "number" } }
+    },
 
     {
       "method": "POST",
       "path": "/api/incident",
-      "description": "Device-side incident ingestion. Writes an incident row with a PostGIS POINT location. Optionally links to a device via device_uuid.",
-      "auth": "public (device key recommended in v2 — currently RLS allows public insert)",
+      "description": "Legacy incident-creation endpoint — predates /api/incidents/report. Kept alive (and hardened the same way) for older mobile app builds; new integrations should use /api/incidents/report instead.",
+      "auth": "device (X-Device-Key required)",
       "body": {
         "lng": "number (required, -180..180)",
         "lat": "number (required, -90..90)",
-        "device_uuid": "string (optional) — looks up devices.device_uuid, attaches device_id"
+        "device_uuid": "string (optional) — the hardware's own id, stored as-is into device_id"
       },
       "responses": {
-        "201": { "data": "Incident (id, location, user_id, device_id, status='received', read=false, occurred_at)" }
+        "201": { "data": "Incident" }
       }
     },
     {
       "method": "GET",
       "path": "/api/incident",
       "description": "List incidents. Optional date filter (YYYY-MM-DD, UTC). Returns up to 500 rows newest first.",
-      "auth": "staff (admin/authority) or owner — enforced by RLS",
+      "auth": "session (admin/authority)",
       "query": {
         "date": "string (optional) — YYYY-MM-DD UTC; filters occurred_at to that day"
       },
@@ -106,7 +234,7 @@
       "method": "GET",
       "path": "/api/incident/{id}",
       "description": "Fetch a single incident.",
-      "auth": "staff or owner",
+      "auth": "session (admin/authority)",
       "pathParams": { "id": "uuid" },
       "responses": {
         "200": { "data": "Incident" },
@@ -116,27 +244,64 @@
     {
       "method": "PATCH",
       "path": "/api/incident/{id}/status",
-      "description": "Transition an incident between `received` and `reported`. Marks the row read. Writes a `logs` entry.",
-      "auth": "admin or authority",
+      "description": "Transition an incident's status. Marks the row read. Writes a `logs` entry.",
+      "auth": "session (admin/authority)",
       "pathParams": { "id": "uuid" },
       "body": {
-        "status": "'received' | 'reported' (required)"
+        "status": "'received' | 'reported' | 'canceled' (required)"
       },
       "responses": {
         "200": { "data": "Incident (updated)" }
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/incidents/{incident_id}/stop",
+      "description": "Sends a stop-emergency FCM push to the incident's device (notification body: `STOP_EMERGENCY-{device_uuid}`, matched exactly by the mobile app). Writes a `logs` entry.",
+      "auth": "session (admin/authority)",
+      "pathParams": { "incident_id": "uuid" },
+      "responses": {
+        "200": { "ok": true },
+        "409": { "error": "incident has no device | device has no registered push token" }
+      }
+    },
+    {
+      "method": "POST",
+      "path": "/api/incident/{id}/track",
+      "description": "Legacy breadcrumb endpoint — predates /api/incidents/log. Kept alive (and hardened the same way) for older mobile app builds; new integrations should use /api/incidents/log instead.",
+      "auth": "device (X-Device-Key required)",
+      "pathParams": { "id": "uuid — the incident id" },
+      "body": {
+        "lat": "number (required, -90..90)",
+        "lng": "number (required, -180..180)",
+        "device_uuid": "string (optional)"
+      },
+      "responses": {
+        "201": { "data": "IncidentLog" },
+        "404": { "error": "incident not found" }
+      }
+    },
+    {
+      "method": "GET",
+      "path": "/api/incident/{id}/track",
+      "description": "Read the most recent 100 breadcrumb points for an incident, newest first.",
+      "auth": "session (admin/authority)",
+      "pathParams": { "id": "uuid" },
+      "responses": {
+        "200": { "data": "IncidentLog[] (id, created_at, lat, lng)" }
       }
     },
 
     {
       "method": "POST",
       "path": "/api/ping",
-      "description": "Send a ping to a device. Inserts a `pings` row (status=sent) and best-effort FCM push using the most recent token in `notifications`.",
-      "auth": "admin or authority",
+      "description": "Send a ping to a device. Inserts a `pings` row (status=sent) and best-effort FCM push using the device's registered token.",
+      "auth": "session (admin/authority)",
       "body": {
-        "device_id": "uuid (required)"
+        "device_id": "uuid (required) — devices.id"
       },
       "responses": {
-        "201": { "data": "Ping (id, device_id, ping_date, status='sent')" }
+        "201": { "data": "Ping", "pushed": "boolean", "pushError": "string | undefined" }
       },
       "sideEffects": [
         "logs row: action='ping.sent', entity='device', entity_id=device_id"
@@ -146,7 +311,7 @@
       "method": "PATCH",
       "path": "/api/ping",
       "description": "Device callback — marks a ping as `received`. Called by the device after processing the FCM push.",
-      "auth": "public (no session required for device)",
+      "auth": "device (X-Device-Key required)",
       "body": {
         "ping_id": "uuid (required)"
       },
@@ -154,15 +319,31 @@
         "200": { "data": "Ping (status='received')" }
       }
     },
+    {
+      "method": "POST",
+      "path": "/api/ping/start",
+      "description": "Sends an FCM push telling a device to start its standard (non-emergency) location pings. Notification body: `STAR-{device_uuid}`, matched exactly by the mobile app.",
+      "auth": "session (admin/authority)",
+      "body": { "device_id": "uuid (required)" },
+      "responses": { "200": { "ok": true } }
+    },
+    {
+      "method": "POST",
+      "path": "/api/ping/stop",
+      "description": "Sends an FCM push telling a device to stop its standard location pings. Notification body: `STOP-{device_uuid}`, matched exactly by the mobile app.",
+      "auth": "session (admin/authority)",
+      "body": { "device_id": "uuid (required)" },
+      "responses": { "200": { "ok": true } }
+    },
 
     {
       "method": "POST",
       "path": "/api/contact",
-      "description": "Public contact form submission. Stores a row in `contacts` for the admin Settings tab.",
+      "description": "Public contact form submission. Stores a row in `contacts` for the admin to review.",
       "auth": "public",
       "body": {
-        "name": "string (required, min 1)",
-        "email": "string (required, valid email)",
+        "name": "string (required, min 1, max 200)",
+        "email": "string (required, valid email, max 320)",
         "message": "string (required, min 1, max 2000)"
       },
       "responses": {
@@ -173,10 +354,65 @@
       "method": "GET",
       "path": "/api/contact",
       "description": "List the latest 100 contact submissions.",
-      "auth": "admin only",
+      "auth": "session (admin only)",
       "responses": {
         "200": { "data": "ContactSubmission[]" }
       }
+    },
+
+    {
+      "method": "POST",
+      "path": "/api/newsletter",
+      "description": "Public footer newsletter signup. Upserts the subscriber into Mailchimp via PUT with status_if_new — never re-subscribes someone who previously unsubscribed.",
+      "auth": "public",
+      "body": { "email": "string (required, valid email, max 320)" },
+      "responses": {
+        "200": { "ok": true },
+        "503": { "error": "Newsletter signup is not configured." }
+      }
+    },
+
+    {
+      "method": "POST",
+      "path": "/api/chat",
+      "description": "Backs the public support-chat widget. Proxies to the Anthropic Messages API with a fixed system prompt.",
+      "auth": "public",
+      "body": {
+        "messages": "Array<{ role: 'user'|'assistant', content: string (1-4000 chars) }> (1-20 items, required)"
+      },
+      "responses": {
+        "200": { "reply": "string" },
+        "503": { "error": "Chat is not configured yet. Set ANTHROPIC_API_KEY to enable it." }
+      }
+    },
+
+    {
+      "method": "GET",
+      "path": "/api/geocode",
+      "description": "Server-side proxy for Nominatim address search (adds a proper User-Agent per its usage policy, which a client-side fetch can't reliably set). Used by the seller onboarding area-picker.",
+      "auth": "session (any signed-in user)",
+      "query": { "q": "string (required, min 3 chars)" },
+      "responses": { "200": { "results": "Array<{ label: string, lat: number, lng: number }>" } }
+    },
+
+    {
+      "method": "POST",
+      "path": "/api/seller/onboarding/complete",
+      "description": "Promotes the caller to the 'seller' role once their seller_profiles row has all required fields (business_name, services, area_lat/lng/radius). Uses the service-role client deliberately — profiles.role is not something a session client should ever be trusted to set directly.",
+      "auth": "session (rider or seller only)",
+      "responses": {
+        "200": { "ok": true },
+        "400": { "error": "Finish both onboarding steps before submitting." },
+        "403": { "error": "This role can't start seller onboarding." }
+      }
+    },
+
+    {
+      "method": "POST",
+      "path": "/api/account/delete",
+      "description": "Self-service, irreversible account deletion. Hard-deletes the auth user, which cascades to profile/emergency_contacts/subscriptions/seller_profiles/sent incident_messages and the profile_images storage folder. devices/incidents/logs are anonymized (user_id set null) rather than deleted, per the existing on-delete-set-null schema design — those are safety/audit records, not personal data.",
+      "auth": "session (acts only on the caller's own id — no target-user param)",
+      "responses": { "200": { "ok": true } }
     },
 
     {
@@ -214,12 +450,25 @@
     },
     "Incident": {
       "id": "uuid (pk)",
-      "location": "geography(Point, 4326) — PostGIS; EWKT string in API responses, parse with regex /POINT\\(([-\\d.]+)\\s+([-\\d.]+)\\)/",
+      "location": "geography(Point, 4326) — kept in sync from lat/lng by a trigger; prefer lat/lng in API bodies",
+      "lat": "number | null",
+      "lng": "number | null",
       "user_id": "uuid | null (fk → profiles.id)",
-      "device_id": "uuid | null (fk → devices.id)",
-      "status": "'received' | 'reported'",
+      "device_id": "string | null — the hardware's own device_uuid, stored directly (a text column; NOT a uuid FK to devices.id, despite the column name)",
+      "status": "'received' | 'reported' | 'canceled'",
       "read": "boolean",
-      "occurred_at": "timestamptz"
+      "incident_type": "IncidentType | null",
+      "occurred_at": "timestamptz",
+      "created_at": "timestamptz"
+    },
+    "IncidentLog": {
+      "id": "bigint (pk)",
+      "incident_id": "uuid (fk → incidents.id)",
+      "user_id": "uuid | null",
+      "device_id": "string | null — same convention as Incident.device_id",
+      "lat": "number",
+      "lng": "number",
+      "created_at": "timestamptz"
     },
     "Ping": {
       "id": "uuid (pk)",
@@ -247,12 +496,30 @@
       "id": "uuid (pk, equals auth.users.id)",
       "fullname": "string",
       "phone": "string | null (unique)",
-      "role": "'rider' | 'admin' | 'authority'",
+      "role": "'rider' | 'seller' | 'admin' | 'authority'",
+      "status": "'Active' | 'Inactive' | 'Deleted'",
+      "profile_img": "string | null",
       "created_at": "timestamptz"
+    },
+    "SellerProfile": {
+      "id": "uuid (pk)",
+      "user_id": "uuid (fk → profiles.id, unique)",
+      "business_name": "string | null",
+      "services": "string[]",
+      "business_hours": "jsonb — { mon: { open, close, closed? }, ... }",
+      "contact_phone": "string | null",
+      "contact_email": "string | null",
+      "area_label": "string | null",
+      "area_lat": "number | null",
+      "area_lng": "number | null",
+      "area_radius_meters": "number | null",
+      "onboarding_completed_at": "timestamptz | null",
+      "created_at": "timestamptz",
+      "updated_at": "timestamptz"
     },
     "Device": {
       "id": "uuid (pk)",
-      "device_uuid": "string (unique)",
+      "device_uuid": "string (unique) — the hardware's own id",
       "user_id": "uuid | null",
       "ip": "string | null",
       "last_seen": "timestamptz | null",
@@ -276,29 +543,33 @@
   },
 
   "enums": {
-    "user_role": ["rider", "admin", "authority"],
-    "incident_status": ["received", "reported"],
+    "user_role": ["rider", "seller", "admin", "authority"],
+    "incident_status": ["received", "reported", "canceled"],
+    "incident_type": ["SOS Button", "SOS Volume keys", "SOS USB", "SOS Fall Detected"],
     "ping_status": ["sent", "received"],
-    "subscription_status": ["active", "past_due", "canceled", "incomplete"]
+    "subscription_status": ["active", "past_due", "canceled", "incomplete"],
+    "profile_status": ["Active", "Inactive", "Deleted"]
   },
 
   "roleMatrix": {
-    "rider": ["profile: read self", "settings: read/write self", "emergency_contact: CRUD self"],
-    "authority": ["incident: read all, update status", "ping: send, read", "monitor: read"],
+    "rider": ["profile: read/write self", "settings: read/write self", "emergency_contact: CRUD self", "account: self-delete"],
+    "seller": ["everything a rider has", "seller_profile: CRUD self (business details, service area)"],
+    "authority": ["incident: read all, update status", "ping: send/read/start/stop", "monitor: read", "messaging: read/send on any incident"],
     "admin": [
       "all authority powers",
-      "user: read all, change role",
+      "user: read all, edit fullname/phone/role/status",
       "subscription: read all, write via Stripe webhook",
-      "contact: read submissions",
-      "settings (admin): read contact submissions"
+      "contact: read submissions"
     ]
   },
 
   "notes": [
-    "RLS is the source of truth for row-level access. Route handlers also enforce role checks server-side.",
-    "Geolocation fields are PostGIS — when you see 'SRID=4326;POINT(lng lat)' in insert bodies, that is EWKT. Read responses stringify the same.",
+    "RLS is the source of truth for row-level access on session-based routes. Route handlers also enforce role checks server-side.",
+    "Device-facing routes (incident report/log, device register, ping ack) intentionally bypass RLS via the service-role client: RLS's SELECT policies only allow a row's own owner or staff to read it back, which an anonymous device request is neither — even reading back its own just-inserted row would otherwise fail.",
+    "incidents.device_id / incident_logs.device_id are text columns holding the hardware's own device_uuid directly — not a uuid FK to devices.id, despite the column name and what older code comments in this repo may say.",
     "Stripe webhook requires the raw request body — Next.js route handlers receive it via req.text().",
-    "FCM uses firebase-admin (server-only). The web client config you provided earlier is NOT compatible with admin — paste the service account JSON to populate FIREBASE_PRIVATE_KEY.",
+    "FCM uses firebase-admin (server-only). The web client config is NOT compatible with admin — use a service account JSON to populate FIREBASE_PRIVATE_KEY.",
+    "FCM push notification bodies are a client-parsed contract, not just display text: stop standard pings = 'STOP-{uuid}', start standard pings = 'STAR-{uuid}' (not a typo), stop emergency = 'STOP_EMERGENCY-{uuid}'.",
     "Use `application/json` content-type on all write requests."
   ]
 }

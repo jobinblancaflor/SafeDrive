@@ -162,26 +162,11 @@ export async function GET(req: Request) {
     });
   }
 
-  // Do not depend on PostgREST's embedded devices relationship here. Some
-  // projects have the FK but do not expose it in the schema cache yet.
-  const deviceIds = Array.from(
-    new Set(rows.map((row) => row.device_id).filter((id): id is string => Boolean(id))),
-  );
-  const deviceUuidById = new Map<string, string>();
-  if (deviceIds.length > 0) {
-    const { data: devices, error: devicesError } = await supabase
-      .from("devices")
-      .select("id, device_uuid")
-      .in("id", deviceIds);
-    if (devicesError) {
-      console.error("Failed to enrich incidents with device UUIDs:", devicesError);
-    } else {
-      for (const device of devices ?? []) {
-        deviceUuidById.set(device.id, device.device_uuid);
-      }
-    }
-  }
-
+  // incidents.device_id already holds the hardware's own device_uuid
+  // directly (a text column, not a uuid FK to devices.id, despite what the
+  // original migration files describe — the live schema has drifted from
+  // them; see lib/incident-ingest.ts for the full story). No lookup
+  // needed: it *is* the device_uuid.
   const incidents = rows.map((r) => ({
     id: r.id,
     occurred_at: r.occurred_at ?? r.created_at,
@@ -196,7 +181,7 @@ export async function GET(req: Request) {
     user_name: r.profiles?.fullname ?? null,
     user_phone: r.profiles?.phone ?? null,
     user_profile_img: r.profiles?.profile_img ?? null,
-    device_uuid: r.device_id ? deviceUuidById.get(r.device_id) ?? null : null,
+    device_uuid: r.device_id,
   }));
 
   return NextResponse.json({ incidents, total: incidents.length });

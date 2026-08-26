@@ -3,6 +3,8 @@ import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isIncidentType } from "@/lib/incident-type";
 import { resolveUserId, touchDevice } from "@/lib/incident-ingest";
+import { requireDeviceKey } from "@/lib/device-auth";
+import { checkRateLimit, clientIp } from "@/lib/rate-limit";
 
 // Initial incident report (IncidentRequest) — sent once when an SOS/fall
 // trigger first fires. No session required from the device, so this uses
@@ -23,6 +25,9 @@ const Body = z.object({
 });
 
 export async function POST(req: Request) {
+  const authError = requireDeviceKey(req);
+  if (authError) return authError;
+
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) {
     return NextResponse.json({ error: "invalid body", issues: parsed.error.issues }, { status: 400 });
@@ -30,6 +35,16 @@ export async function POST(req: Request) {
   const body = parsed.data;
 
   const supabase = createAdminClient();
+
+  // Generous cap — this is a safety-report path, err on the side of never
+  // blocking a real emergency. Just stops outright flooding.
+  const allowed = await checkRateLimit(supabase, `incidents.report:${clientIp(req)}`, {
+    max: 10,
+    windowSeconds: 60,
+  });
+  if (!allowed) {
+    return NextResponse.json({ error: "too many requests" }, { status: 429 });
+  }
 
   const userId = await resolveUserId(supabase, body.user_id);
   const deviceId = body.device_id?.trim() || null;
