@@ -20,6 +20,7 @@ export function PingView({ devices }: { devices: Device[] }) {
   const [pingResult, setPingResult] = useState<string | null>(null);
   const [point, setPoint] = useState<LatLng | null>(null);
   const [loading, setLoading] = useState(false);
+  const [standardPingAction, setStandardPingAction] = useState<"start" | "stop" | null>(null);
 
   const filtered = useMemo(() => {
     const term = q.trim().toLowerCase();
@@ -64,6 +65,21 @@ export function PingView({ devices }: { devices: Device[] }) {
     else setPingResult(`Ping recorded, but push wasn't delivered: ${json.pushError ?? "unknown error"}`);
   }
 
+  async function toggleStandardPings(action: "start" | "stop") {
+    if (!selected) return;
+    setStandardPingAction(action);
+    setPingResult(null);
+    const res = await fetch(`/api/ping/${action}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ device_id: selected.id }),
+    });
+    const json = (await res.json().catch(() => ({}))) as { error?: string };
+    setStandardPingAction(null);
+    if (!res.ok) setPingResult(json.error ?? `Failed to ${action} standard pings.`);
+    else setPingResult(action === "start" ? "Standard pings started." : "Standard pings stopped.");
+  }
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-6">
       <div className="space-y-3">
@@ -94,7 +110,23 @@ export function PingView({ devices }: { devices: Device[] }) {
                   {selected.user?.fullname ?? "—"} · {selected.ip ?? "—"}
                 </p>
               </div>
-              <Button onClick={sendPing} disabled={loading}>{loading ? "Sending…" : "Ping"}</Button>
+              <div className="flex gap-2">
+                <Button onClick={sendPing} disabled={loading}>{loading ? "Sending…" : "Ping"}</Button>
+                <Button
+                  variant="outline"
+                  onClick={() => toggleStandardPings("start")}
+                  disabled={standardPingAction !== null}
+                >
+                  {standardPingAction === "start" ? "Starting…" : "Start pings"}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => toggleStandardPings("stop")}
+                  disabled={standardPingAction !== null}
+                >
+                  {standardPingAction === "stop" ? "Stopping…" : "Stop pings"}
+                </Button>
+              </div>
             </div>
             {pingResult && <p className="text-sm text-slate-600">{pingResult}</p>}
             <PingMap point={point} />

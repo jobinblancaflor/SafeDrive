@@ -35,15 +35,46 @@ export async function sendPing(deviceToken: string, payload: { pingId: string })
   });
 }
 
+// The mobile app matches on the exact notification body string below (not
+// the data payload) to decide what action to take — these three formats
+// are its contract, not just display text:
+//   stop standard pings   -> "STOP-{uuid}"
+//   start standard pings  -> "STAR-{uuid}"   (yes, "STAR" not "START")
+//   stop emergency report -> "STOP_EMERGENCY-{uuid}"
+
 export async function sendStopEmergency(deviceToken: string, deviceUuid: string) {
   const app = getApp();
   return getMessaging(app).send({
     token: deviceToken,
     notification: {
       title: "Secure Signal",
-      body: `STOP EMERGENCY - ${deviceUuid}`,
+      body: `STOP_EMERGENCY-${deviceUuid}`,
     },
     data: { type: "stop_emergency", deviceUuid },
+  });
+}
+
+export async function sendStartPing(deviceToken: string, deviceUuid: string) {
+  const app = getApp();
+  return getMessaging(app).send({
+    token: deviceToken,
+    notification: {
+      title: "Secure Signal",
+      body: `STAR-${deviceUuid}`,
+    },
+    data: { type: "start_ping", deviceUuid },
+  });
+}
+
+export async function sendStopPing(deviceToken: string, deviceUuid: string) {
+  const app = getApp();
+  return getMessaging(app).send({
+    token: deviceToken,
+    notification: {
+      title: "Secure Signal",
+      body: `STOP-${deviceUuid}`,
+    },
+    data: { type: "stop_ping", deviceUuid },
   });
 }
 
