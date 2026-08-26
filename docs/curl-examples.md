@@ -94,6 +94,14 @@ curl "${AUTH[@]}" -X DELETE "$BASE_URL/api/admin/emergency-contact/7f3c0000-0000
 curl "${DEVICE[@]}" -X POST "$BASE_URL/api/devices/register" \
   -H "Content-Type: application/json" \
   -d '{"device_uuid":"bff60f44be2a18fe","user_id":"RIDER_UUID","fcm_token":"FCM_TOKEN"}'
+
+# Update just the FCM token for an already-registered device. Strict
+# update, not an upsert: 404s if no row matches BOTH device_uuid and
+# user_id exactly (use /api/devices/register instead for first-time
+# registration).
+curl "${DEVICE[@]}" -X POST "$BASE_URL/api/devices/fcm-token" \
+  -H "Content-Type: application/json" \
+  -d '{"device_uuid":"bff60f44be2a18fe","user_id":"RIDER_UUID","fcm_token":"NEW_FCM_TOKEN"}'
 ```
 
 Rate limit: 20 requests / hour per IP.

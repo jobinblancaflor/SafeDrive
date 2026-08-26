@@ -40,6 +40,7 @@
     "/api/incident (POST, legacy)": "10 / 60s per client IP",
     "/api/incident/[id]/track (POST, legacy)": "30 / 60s per incident",
     "/api/devices/register": "20 / 3600s per client IP",
+    "/api/devices/fcm-token": "30 / 3600s per client IP",
     "/api/ping (PATCH)": "30 / 60s per client IP",
     "/api/chat": "20 / 300s per client IP",
     "/api/contact (POST)": "5 / 3600s per client IP",
@@ -77,6 +78,26 @@
         "201": "{ data: device, created: true }",
         "400": "{ error:\"invalid body\", issues }",
         "401": "{ error:\"unauthorized\" } (bad/missing X-Device-Key)",
+        "429": "{ error:\"too many requests\" }"
+      }
+    },
+    {
+      "path": "/api/devices/fcm-token",
+      "methods": ["POST"],
+      "auth": "Device (X-Device-Key required).",
+      "description": "Strict update of devices.fcm_id for the row matching BOTH device_uuid AND user_id exactly. Unlike POST /api/devices/register (an upsert, lenient about ownership mismatches), this never creates a row — no match means 404. Meant for an already-registered device refreshing its own token, not first-time registration.",
+      "schemas": {
+        "postRequest": {
+          "device_uuid": "string (required)",
+          "user_id": "string (required) — must resolve to a real profiles.id, or this 404s",
+          "fcm_token": "string (required) — saved to devices.fcm_id"
+        }
+      },
+      "responses": {
+        "200": "{ data: device }",
+        "400": "{ error:\"invalid body\", issues }",
+        "401": "{ error:\"unauthorized\" } (bad/missing X-Device-Key)",
+        "404": "{ error:\"device not found for this user\" }",
         "429": "{ error:\"too many requests\" }"
       }
     },
