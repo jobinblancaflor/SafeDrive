@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { ProfileForm } from "@/components/auth/profile-form";
 import { PasswordForm } from "@/components/auth/password-form";
 import { EmergencyContactForm } from "@/components/auth/emergency-contact-form";
+import { DeleteAccountSection } from "@/components/settings/delete-account-section";
 
 export default async function SettingsPage() {
   const user = await requireUser();
@@ -55,6 +56,16 @@ export default async function SettingsPage() {
         </CardHeader>
         <CardContent>
           <EmergencyContactForm mode="self" initial={contacts ?? []} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Danger zone</CardTitle>
+          <CardDescription>Irreversible account actions.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <DeleteAccountSection />
         </CardContent>
       </Card>
     </div>
