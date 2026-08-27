@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef } from "react";
-import { MapContainer, TileLayer, useMap, useMapEvents } from "react-leaflet";
+import { MapContainer, TileLayer, Circle, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import "leaflet.markercluster";
 import "leaflet/dist/leaflet.css";
@@ -271,7 +271,13 @@ export function IncidentMapImpl({
   );
 }
 
-export function PingMapImpl({ point }: { point: LatLng | null }) {
+export function PingMapImpl({
+  point,
+  accuracyMeters,
+}: {
+  point: LatLng | null;
+  accuracyMeters?: number | null;
+}) {
   const center = point ?? DEFAULT_CENTER;
 
   return (
@@ -279,6 +285,13 @@ export function PingMapImpl({ point }: { point: LatLng | null }) {
       <MapContainer center={[center.lat, center.lng]} zoom={13} style={{ height: "100%", width: "100%" }}>
         <TileLayer url={TILE_URL} attribution={TILE_ATTRIBUTION} />
         {point ? <SingleMarker point={point} /> : null}
+        {point && accuracyMeters ? (
+          <Circle
+            center={[point.lat, point.lng]}
+            radius={accuracyMeters}
+            pathOptions={{ color: "#2563eb", fillColor: "#3b82f6", fillOpacity: 0.15, weight: 1 }}
+          />
+        ) : null}
       </MapContainer>
     </div>
   );
@@ -286,9 +299,23 @@ export function PingMapImpl({ point }: { point: LatLng | null }) {
 
 function SingleMarker({ point }: { point: LatLng }) {
   const map = useMap();
+  const isFirstPoint = useRef(true);
 
   useEffect(() => {
     const marker = L.marker([point.lat, point.lng], { icon: pinIcon("#2563eb") }).addTo(map);
+
+    // MapContainer's `center` prop only applies on initial mount — it's
+    // not reactive to later prop changes. Without this, the marker moves
+    // to a new point but the map itself never re-centers on it (e.g. a
+    // ping location arriving after the map already rendered at the
+    // default center). Skip the very first point since the initial
+    // `center` already put the map there.
+    if (isFirstPoint.current) {
+      isFirstPoint.current = false;
+    } else {
+      map.flyTo([point.lat, point.lng], map.getZoom());
+    }
+
     return () => {
       map.removeLayer(marker);
     };

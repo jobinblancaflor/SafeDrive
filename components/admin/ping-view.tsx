@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { PingMap } from "@/components/map/incident-map";
@@ -19,8 +19,35 @@ export function PingView({ devices }: { devices: Device[] }) {
   const [selected, setSelected] = useState<Device | null>(null);
   const [pingResult, setPingResult] = useState<string | null>(null);
   const [point, setPoint] = useState<LatLng | null>(null);
+  const [accuracy, setAccuracy] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [standardPingAction, setStandardPingAction] = useState<"start" | "stop" | null>(null);
+  const [pendingPingId, setPendingPingId] = useState<string | null>(null);
+
+  // Live-update the map when the device reports its location for the ping
+  // we just sent (POST /api/ping/location, updates pings.lat/lng/accuracy).
+  useEffect(() => {
+    if (!pendingPingId) return;
+    const supabase = createClient();
+    const channel = supabase
+      .channel(`ping-location-${pendingPingId}`)
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "pings", filter: `id=eq.${pendingPingId}` },
+        (payload) => {
+          const row = payload.new as { lat: number | null; lng: number | null; accuracy: number | null };
+          if (row.lat !== null && row.lng !== null) {
+            setPoint({ lat: row.lat, lng: row.lng });
+            setAccuracy(row.accuracy);
+          }
+        },
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [pendingPingId]);
 
   const filtered = useMemo(() => {
     const term = q.trim().toLowerCase();
@@ -37,7 +64,10 @@ export function PingView({ devices }: { devices: Device[] }) {
     setSelected(d);
     setPingResult(null);
     setPoint(null);
-    // Use latest incident location as a stand-in for current device location.
+    setAccuracy(null);
+    setPendingPingId(null);
+    // Use latest incident location as a stand-in for current device location
+    // until a fresh ping's own location comes in.
     const supabase = createClient();
     const { data } = await supabase
       .from("incidents")
@@ -53,15 +83,24 @@ export function PingView({ devices }: { devices: Device[] }) {
     if (!selected) return;
     setLoading(true);
     setPingResult(null);
+    setAccuracy(null);
     const res = await fetch("/api/ping", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ device_id: selected.id }),
     });
-    const json = (await res.json().catch(() => ({}))) as { pushed?: boolean; pushError?: string };
+    const json = (await res.json().catch(() => ({}))) as {
+      data?: { id: string };
+      pushed?: boolean;
+      pushError?: string;
+    };
     setLoading(false);
-    if (!res.ok) setPingResult("Failed to send ping.");
-    else if (json.pushed) setPingResult("Ping sent — awaiting device receipt.");
+    if (!res.ok) {
+      setPingResult("Failed to send ping.");
+      return;
+    }
+    if (json.data?.id) setPendingPingId(json.data.id);
+    if (json.pushed) setPingResult("Ping sent — awaiting device receipt.");
     else setPingResult(`Ping recorded, but push wasn't delivered: ${json.pushError ?? "unknown error"}`);
   }
 
@@ -129,8 +168,11 @@ export function PingView({ devices }: { devices: Device[] }) {
               </div>
             </div>
             {pingResult && <p className="text-sm text-slate-600">{pingResult}</p>}
-            <PingMap point={point} />
+            <PingMap point={point} accuracyMeters={accuracy} />
             {!point && <p className="text-xs text-slate-500">No recent location — map shows default center.</p>}
+            {point && accuracy != null && (
+              <p className="text-xs text-slate-500">Accuracy: ±{Math.round(accuracy)} m</p>
+            )}
           </>
         ) : (
           <div className="rounded-lg border bg-white p-8 text-sm text-slate-500">

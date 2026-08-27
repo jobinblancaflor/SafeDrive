@@ -339,12 +339,13 @@
     {
       "method": "POST",
       "path": "/api/ping/location",
-      "description": "Device reports its current location for a specific ping, updating pings.lat/lng for the row matching ping_id.",
+      "description": "Device reports its current location for a specific ping, updating pings.lat/lng/accuracy for the row matching ping_id. The admin ping map re-centers on this location and draws accuracy as a radius circle around the marker.",
       "auth": "device (X-Device-Key required)",
       "body": {
         "ping_id": "uuid (required)",
         "lat": "number (required, -90..90)",
-        "lng": "number (required, -180..180)"
+        "lng": "number (required, -180..180)",
+        "accuracy": "number (optional, meters, >= 0) — e.g. Android Location.getAccuracy()"
       },
       "responses": {
         "200": { "data": "Ping" },
@@ -492,7 +493,8 @@
       "ping_date": "timestamptz",
       "status": "'sent' | 'received'",
       "lat": "number | null",
-      "lng": "number | null"
+      "lng": "number | null",
+      "accuracy": "number | null — meters"
     },
     "ContactSubmission": {
       "id": "uuid (pk)",
