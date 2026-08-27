@@ -327,12 +327,13 @@
       "path": "/api/ping/location",
       "methods": ["POST"],
       "auth": "Device (X-Device-Key required).",
-      "description": "Device reports its current location for a specific ping, updating pings.lat/lng for the row matching ping_id.",
+      "description": "Device reports its current location for a specific ping, updating pings.lat/lng/accuracy for the row matching ping_id. The admin ping map re-centers on this location and draws accuracy as a radius circle around the marker.",
       "schemas": {
         "postRequest": {
           "ping_id": "uuid (required)",
           "lat": "number (required, -90..90)",
-          "lng": "number (required, -180..180)"
+          "lng": "number (required, -180..180)",
+          "accuracy": "number (optional, meters, >= 0) — e.g. Android Location.getAccuracy()"
         }
       },
       "responses": {

@@ -13,6 +13,7 @@ const Body = z.object({
   ping_id: z.string().uuid(),
   lat: z.number().min(-90).max(90),
   lng: z.number().min(-180).max(180),
+  accuracy: z.number().min(0).optional(),
 });
 
 export async function POST(req: Request) {
@@ -23,7 +24,7 @@ export async function POST(req: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: "invalid body", issues: parsed.error.issues }, { status: 400 });
   }
-  const { ping_id, lat, lng } = parsed.data;
+  const { ping_id, lat, lng, accuracy } = parsed.data;
 
   const supabase = createAdminClient();
 
@@ -37,7 +38,7 @@ export async function POST(req: Request) {
 
   const { data, error } = await supabase
     .from("pings")
-    .update({ lat, lng })
+    .update({ lat, lng, accuracy: accuracy ?? null })
     .eq("id", ping_id)
     .select()
     .maybeSingle();

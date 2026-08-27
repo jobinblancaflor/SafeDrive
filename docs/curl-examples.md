@@ -185,10 +185,12 @@ curl "${DEVICE[@]}" -X PATCH "$BASE_URL/api/ping" \
   -H "Content-Type: application/json" \
   -d '{"ping_id":"PING_UUID"}'
 
-# Device reports its location for a ping (requires X-Device-Key)
+# Device reports its location for a ping (requires X-Device-Key).
+# accuracy is optional, in meters (e.g. Android Location.getAccuracy()) —
+# drawn as a radius circle around the marker on the admin ping map.
 curl "${DEVICE[@]}" -X POST "$BASE_URL/api/ping/location" \
   -H "Content-Type: application/json" \
-  -d '{"ping_id":"PING_UUID","lat":14.6091,"lng":121.0223}'
+  -d '{"ping_id":"PING_UUID","lat":14.6091,"lng":121.0223,"accuracy":25.5}'
 
 # Tell a device to start/stop its standard (non-emergency) location pings —
 # admin/authority, session-authenticated like the send-ping call above
