@@ -40,7 +40,7 @@ export async function POST(req: Request) {
   // whether it actually went out so the UI can tell the admin).
   const { data: device } = await supabase
     .from("devices")
-    .select("fcm_id")
+    .select("fcm_id, device_uuid")
     .eq("id", parsed.data.device_id)
     .maybeSingle();
 
@@ -48,7 +48,7 @@ export async function POST(req: Request) {
   let pushError: string | undefined;
   if (device?.fcm_id) {
     try {
-      await sendPing(device.fcm_id, { pingId: ping.id });
+      await sendPing(device.fcm_id, { pingId: ping.id, deviceUuid: device.device_uuid });
       pushed = true;
     } catch (err) {
       console.error("FCM send failed:", err);

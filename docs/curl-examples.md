@@ -185,6 +185,11 @@ curl "${DEVICE[@]}" -X PATCH "$BASE_URL/api/ping" \
   -H "Content-Type: application/json" \
   -d '{"ping_id":"PING_UUID"}'
 
+# Device reports its location for a ping (requires X-Device-Key)
+curl "${DEVICE[@]}" -X POST "$BASE_URL/api/ping/location" \
+  -H "Content-Type: application/json" \
+  -d '{"ping_id":"PING_UUID","lat":14.6091,"lng":121.0223}'
+
 # Tell a device to start/stop its standard (non-emergency) location pings —
 # admin/authority, session-authenticated like the send-ping call above
 curl "${AUTH[@]}" -X POST "$BASE_URL/api/ping/start" \

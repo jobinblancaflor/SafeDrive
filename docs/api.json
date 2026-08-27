@@ -22,6 +22,7 @@
     "/api/incident/{id}/track (POST, legacy)": "30 requests / 60s per incident",
     "/api/devices/register": "20 requests / 3600s per client IP",
     "/api/ping (PATCH)": "30 requests / 60s per client IP",
+    "/api/ping/location": "30 requests / 60s per client IP",
     "/api/chat": "20 requests / 300s per client IP",
     "/api/contact": "5 requests / 3600s per client IP",
     "/api/newsletter": "5 requests / 3600s per client IP"
@@ -322,7 +323,7 @@
     {
       "method": "POST",
       "path": "/api/ping/start",
-      "description": "Sends an FCM push telling a device to start its standard (non-emergency) location pings. Notification body: `STAR-{device_uuid}`, matched exactly by the mobile app.",
+      "description": "Sends an FCM push telling a device to start its standard (non-emergency) location pings. Notification body: `START-{device_uuid}`, matched exactly by the mobile app.",
       "auth": "session (admin/authority)",
       "body": { "device_id": "uuid (required)" },
       "responses": { "200": { "ok": true } }
@@ -334,6 +335,21 @@
       "auth": "session (admin/authority)",
       "body": { "device_id": "uuid (required)" },
       "responses": { "200": { "ok": true } }
+    },
+    {
+      "method": "POST",
+      "path": "/api/ping/location",
+      "description": "Device reports its current location for a specific ping, updating pings.lat/lng for the row matching ping_id.",
+      "auth": "device (X-Device-Key required)",
+      "body": {
+        "ping_id": "uuid (required)",
+        "lat": "number (required, -90..90)",
+        "lng": "number (required, -180..180)"
+      },
+      "responses": {
+        "200": { "data": "Ping" },
+        "404": { "error": "ping not found" }
+      }
     },
 
     {
@@ -474,7 +490,9 @@
       "id": "uuid (pk)",
       "device_id": "uuid (fk → devices.id)",
       "ping_date": "timestamptz",
-      "status": "'sent' | 'received'"
+      "status": "'sent' | 'received'",
+      "lat": "number | null",
+      "lng": "number | null"
     },
     "ContactSubmission": {
       "id": "uuid (pk)",
@@ -569,7 +587,7 @@
     "incidents.device_id / incident_logs.device_id are text columns holding the hardware's own device_uuid directly — not a uuid FK to devices.id, despite the column name and what older code comments in this repo may say.",
     "Stripe webhook requires the raw request body — Next.js route handlers receive it via req.text().",
     "FCM uses firebase-admin (server-only). The web client config is NOT compatible with admin — use a service account JSON to populate FIREBASE_PRIVATE_KEY.",
-    "FCM push notification bodies are a client-parsed contract, not just display text: stop standard pings = 'STOP-{uuid}', start standard pings = 'STAR-{uuid}' (not a typo), stop emergency = 'STOP_EMERGENCY-{uuid}'.",
+    "FCM push notification bodies are a client-parsed contract, not just display text: stop standard pings = 'STOP-{uuid}', start standard pings = 'START-{uuid}', stop emergency = 'STOP_EMERGENCY-{uuid}'.",
     "Use `application/json` content-type on all write requests."
   ]
 }

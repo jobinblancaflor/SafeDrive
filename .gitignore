@@ -31,6 +31,10 @@ yarn-error.log*
 firebase-adminsdk-*.json
 *-firebase-adminsdk-*.json
 gcp-service-account*.json
+# this project's Firebase service-account key downloads at repo root,
+# named "<project-id>-<private_key_id>.json" — doesn't match either
+# pattern above (seen twice now: a regenerated key repeats this)
+signal-signal-185ee-*.json
 
 # local env files
 .env*.local
