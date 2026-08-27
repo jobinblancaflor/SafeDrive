@@ -42,6 +42,7 @@
     "/api/devices/register": "20 / 3600s per client IP",
     "/api/devices/fcm-token": "30 / 3600s per client IP",
     "/api/ping (PATCH)": "30 / 60s per client IP",
+    "/api/ping/location": "30 / 60s per client IP",
     "/api/chat": "20 / 300s per client IP",
     "/api/contact (POST)": "5 / 3600s per client IP",
     "/api/newsletter": "5 / 3600s per client IP"
@@ -298,7 +299,7 @@
       "path": "/api/ping/start",
       "methods": ["POST"],
       "auth": "admin or authority only.",
-      "description": "Sends an FCM push telling a device to start its standard (non-emergency) location pings. Notification body is `STAR-{device_uuid}` — yes, \"STAR\" not \"START\", matched exactly by the mobile app.",
+      "description": "Sends an FCM push telling a device to start its standard (non-emergency) location pings. Notification body is `START-{device_uuid}`, matched exactly by the mobile app.",
       "schemas": { "postRequest": { "device_id": "uuid" } },
       "responses": {
         "200": "{ ok: true }",
@@ -320,6 +321,26 @@
         "403": "{ error:\"forbidden\" }",
         "404": "{ error:\"device not found\" }",
         "409": "{ error:\"device has no registered push token\" }"
+      }
+    },
+    {
+      "path": "/api/ping/location",
+      "methods": ["POST"],
+      "auth": "Device (X-Device-Key required).",
+      "description": "Device reports its current location for a specific ping, updating pings.lat/lng for the row matching ping_id.",
+      "schemas": {
+        "postRequest": {
+          "ping_id": "uuid (required)",
+          "lat": "number (required, -90..90)",
+          "lng": "number (required, -180..180)"
+        }
+      },
+      "responses": {
+        "200": "{ data: ping }",
+        "400": "{ error:\"invalid body\", issues }",
+        "401": "{ error:\"unauthorized\" } (bad/missing X-Device-Key)",
+        "404": "{ error:\"ping not found\" }",
+        "429": "{ error:\"too many requests\" }"
       }
     },
 
@@ -601,6 +622,6 @@
   },
   "notes": [
     "incidents.device_id / incident_logs.device_id are text columns holding the hardware's own device_uuid directly — not a uuid FK to devices.id, despite the column name.",
-    "FCM push notification bodies are a client-parsed contract, not just display text: stop standard pings = 'STOP-{uuid}', start standard pings = 'STAR-{uuid}' (not a typo), stop emergency = 'STOP_EMERGENCY-{uuid}'."
+    "FCM push notification bodies are a client-parsed contract, not just display text: stop standard pings = 'STOP-{uuid}', start standard pings = 'START-{uuid}', stop emergency = 'STOP_EMERGENCY-{uuid}'."
   ]
 }

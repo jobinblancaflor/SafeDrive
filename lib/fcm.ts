@@ -23,24 +23,25 @@ function getApp(): App {
   return _app;
 }
 
-export async function sendPing(deviceToken: string, payload: { pingId: string }) {
+// The mobile app matches on the exact notification body string below (not
+// the data payload) to decide what action to take — these formats are its
+// contract, not just display text:
+//   one-shot ping (also starts pings) -> "START-{uuid} . Ping ID: {pingId}"
+//   start standard pings              -> "START-{uuid}"
+//   stop standard pings               -> "STOP-{uuid}"
+//   stop emergency report             -> "STOP_EMERGENCY-{uuid}"
+
+export async function sendPing(deviceToken: string, payload: { pingId: string; deviceUuid: string }) {
   const app = getApp();
   return getMessaging(app).send({
     token: deviceToken,
     notification: {
       title: "Secure Signal Ping",
-      body: "Admin is requesting your location",
+      body: `START-${payload.deviceUuid} . Ping ID: ${payload.pingId}`,
     },
-    data: { type: "ping", pingId: payload.pingId },
+    data: { type: "ping", pingId: payload.pingId, deviceUuid: payload.deviceUuid },
   });
 }
-
-// The mobile app matches on the exact notification body string below (not
-// the data payload) to decide what action to take — these three formats
-// are its contract, not just display text:
-//   stop standard pings   -> "STOP-{uuid}"
-//   start standard pings  -> "STAR-{uuid}"   (yes, "STAR" not "START")
-//   stop emergency report -> "STOP_EMERGENCY-{uuid}"
 
 export async function sendStopEmergency(deviceToken: string, deviceUuid: string) {
   const app = getApp();
@@ -60,7 +61,7 @@ export async function sendStartPing(deviceToken: string, deviceUuid: string) {
     token: deviceToken,
     notification: {
       title: "Secure Signal",
-      body: `STAR-${deviceUuid}`,
+      body: `START-${deviceUuid}`,
     },
     data: { type: "start_ping", deviceUuid },
   });
