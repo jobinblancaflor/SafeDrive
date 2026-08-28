@@ -4,26 +4,37 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { SellerStepBusiness, type BusinessDetails } from "@/components/onboarding/seller-step-business";
+import { SellerStepServices } from "@/components/onboarding/seller-step-services";
 import { SellerStepArea, type AreaDetails } from "@/components/onboarding/seller-step-area";
+import { SellerStepDocuments } from "@/components/onboarding/seller-step-documents";
+import { SellerStepAgreement, SERVICE_AGREEMENT_VERSION } from "@/components/onboarding/seller-step-agreement";
 import { DEFAULT_CENTER } from "@/lib/map-constants";
-import type { SellerProfile } from "@/lib/supabase/types";
+import { isSellerServiceType, type SellerServiceType } from "@/lib/seller-service-type";
+import type { SellerProfile, SellerDocument } from "@/lib/supabase/types";
+
+const STEP_LABELS = ["Business details", "Services", "Areas supported", "Documents", "Agreement"] as const;
+type Step = 1 | 2 | 3 | 4 | 5;
 
 export function SellerOnboardingWizard({
   userId,
   initial,
+  initialDocuments,
 }: {
   userId: string;
   initial: SellerProfile | null;
+  initialDocuments: SellerDocument[];
 }) {
   const router = useRouter();
-  const [step, setStep] = useState<1 | 2>(1);
+  const [step, setStep] = useState<Step>(1);
   const [business, setBusiness] = useState<BusinessDetails>({
     businessName: initial?.business_name ?? "",
-    services: initial?.services ?? [],
     businessHours: initial?.business_hours ?? {},
     contactPhone: initial?.contact_phone ?? "",
     contactEmail: initial?.contact_email ?? "",
   });
+  const [services, setServices] = useState<SellerServiceType[]>(
+    (initial?.services ?? []).filter(isSellerServiceType),
+  );
   const [area, setArea] = useState<AreaDetails>({
     center:
       initial?.area_lat != null && initial?.area_lng != null
@@ -32,6 +43,7 @@ export function SellerOnboardingWizard({
     label: initial?.area_label ?? null,
     radiusKm: initial?.area_radius_meters ? Math.round(initial.area_radius_meters / 1000) : 10,
   });
+  const [agreementAccepted, setAgreementAccepted] = useState(initial?.agreement_accepted_at != null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -43,7 +55,6 @@ export function SellerOnboardingWizard({
       {
         user_id: userId,
         business_name: business.businessName,
-        services: business.services,
         business_hours: business.businessHours,
         contact_phone: business.contactPhone || null,
         contact_email: business.contactEmail || null,
@@ -58,7 +69,23 @@ export function SellerOnboardingWizard({
     setStep(2);
   }
 
-  async function finish() {
+  async function saveServices() {
+    setSaving(true);
+    setError(null);
+    const supabase = createClient();
+    const { error: upsertError } = await supabase.from("seller_profiles").upsert(
+      { user_id: userId, services },
+      { onConflict: "user_id" },
+    );
+    setSaving(false);
+    if (upsertError) {
+      setError(upsertError.message);
+      return;
+    }
+    setStep(3);
+  }
+
+  async function saveArea() {
     setSaving(true);
     setError(null);
     const supabase = createClient();
@@ -69,6 +96,26 @@ export function SellerOnboardingWizard({
         area_lat: area.center.lat,
         area_lng: area.center.lng,
         area_radius_meters: area.radiusKm * 1000,
+      },
+      { onConflict: "user_id" },
+    );
+    setSaving(false);
+    if (upsertError) {
+      setError(upsertError.message);
+      return;
+    }
+    setStep(4);
+  }
+
+  async function finish() {
+    setSaving(true);
+    setError(null);
+    const supabase = createClient();
+    const { error: upsertError } = await supabase.from("seller_profiles").upsert(
+      {
+        user_id: userId,
+        agreement_accepted_at: new Date().toISOString(),
+        agreement_version: SERVICE_AGREEMENT_VERSION,
       },
       { onConflict: "user_id" },
     );
@@ -91,26 +138,59 @@ export function SellerOnboardingWizard({
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
-      <div className="flex items-center gap-3 text-sm">
-        <StepBadge n={1} active={step === 1} done={step > 1} label="Business details" />
-        <div className="h-px flex-1 bg-slate-200" />
-        <StepBadge n={2} active={step === 2} done={false} label="Areas supported" />
+      <div className="flex items-center gap-2 text-sm">
+        {STEP_LABELS.map((label, i) => {
+          const n = (i + 1) as Step;
+          return (
+            <div key={label} className="flex items-center gap-2">
+              {i > 0 && <div className="h-px w-4 bg-slate-200" />}
+              <StepBadge n={n} active={step === n} done={step > n} label={label} />
+            </div>
+          );
+        })}
       </div>
 
       <div className="rounded-lg border bg-white p-6">
-        {step === 1 ? (
+        {step === 1 && (
           <SellerStepBusiness value={business} onChange={setBusiness} onNext={saveBusiness} submitting={saving} />
-        ) : (
+        )}
+        {step === 2 && (
+          <SellerStepServices
+            value={services}
+            onChange={setServices}
+            onBack={() => setStep(1)}
+            onNext={saveServices}
+            submitting={saving}
+          />
+        )}
+        {step === 3 && (
           <SellerStepArea
             value={area}
             onChange={setArea}
-            onBack={() => setStep(1)}
+            onBack={() => setStep(2)}
+            onNext={saveArea}
+            submitting={saving}
+          />
+        )}
+        {step === 4 && (
+          <SellerStepDocuments
+            userId={userId}
+            initialDocuments={initialDocuments}
+            onBack={() => setStep(3)}
+            onNext={() => setStep(5)}
+          />
+        )}
+        {step === 5 && (
+          <SellerStepAgreement
+            accepted={agreementAccepted}
+            onChange={setAgreementAccepted}
+            onBack={() => setStep(4)}
             onFinish={finish}
             finishing={saving}
             finishError={error}
           />
         )}
-        {step === 1 && error && <p className="mt-3 text-sm text-status-critical">{error}</p>}
+        {step !== 5 && error && <p className="mt-3 text-sm text-status-critical">{error}</p>}
       </div>
     </div>
   );
