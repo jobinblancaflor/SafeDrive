@@ -73,6 +73,18 @@ export type SellerDocument = {
   uploaded_at: string;
 };
 
+export type SellerDirectoryEntry = {
+  user_id: string;
+  business_name: string | null;
+  services: string[];
+  business_hours: BusinessHours;
+  area_label: string | null;
+  area_lat: number | null;
+  area_lng: number | null;
+  area_radius_meters: number | null;
+  onboarding_completed_at: string;
+};
+
 export type Device = {
   id: string;
   device_uuid: string;
