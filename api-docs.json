@@ -591,6 +591,30 @@
       }
     },
     {
+      "path": "/api/sellers/[id]/reviews",
+      "methods": ["POST"],
+      "auth": "rider only (session).",
+      "description": "Upserts the caller's review for a seller (one per rider per seller — re-submitting edits it). Requires an existing seller_inquiries row for that seller/rider pair; seller_reviews' own INSERT policy enforces this eligibility at the database layer too, not just here.",
+      "schemas": { "postRequest": { "rating": "integer 1-5", "body": "string, optional, max 2000 chars" } },
+      "responses": {
+        "200": "{ data: SellerReview }",
+        "400": "{ error:\"invalid body\" }",
+        "403": "{ error:\"only riders can leave a review\" | \"Contact us about this seller before leaving a review.\" }"
+      }
+    },
+    {
+      "path": "/api/admin/reviews/[id]/hide",
+      "methods": ["POST"],
+      "auth": "admin or authority only (session).",
+      "description": "Sets or clears hidden_by_admin on a seller_reviews row (moderation).",
+      "schemas": { "postRequest": { "hidden": "boolean" } },
+      "responses": {
+        "200": "{ ok: true, review: { id, hidden_by_admin } }",
+        "403": "{ error:\"forbidden\" }",
+        "404": "{ error:\"not found\" }"
+      }
+    },
+    {
       "path": "/api/account/delete",
       "methods": ["POST"],
       "auth": "any signed-in user; acts only on the caller's own id.",
