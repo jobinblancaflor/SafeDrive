@@ -85,6 +85,18 @@ export type SellerDirectoryEntry = {
   onboarding_completed_at: string;
 };
 
+export type InquiryStatus = "new" | "contacted" | "closed";
+
+export type SellerInquiry = {
+  id: string;
+  rider_user_id: string;
+  seller_user_id: string;
+  service_type: string;
+  message: string;
+  status: InquiryStatus;
+  created_at: string;
+};
+
 export type Device = {
   id: string;
   device_uuid: string;
