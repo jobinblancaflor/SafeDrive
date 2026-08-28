@@ -97,6 +97,16 @@ export type SellerInquiry = {
   created_at: string;
 };
 
+export type SellerReview = {
+  id: string;
+  seller_user_id: string;
+  rider_user_id: string;
+  rating: number;
+  body: string | null;
+  hidden_by_admin: boolean;
+  created_at: string;
+};
+
 export type Device = {
   id: string;
   device_uuid: string;
