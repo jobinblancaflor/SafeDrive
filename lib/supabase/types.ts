@@ -58,9 +58,19 @@ export type SellerProfile = {
   area_lat: number | null;
   area_lng: number | null;
   area_radius_meters: number | null;
+  agreement_accepted_at: string | null;
+  agreement_version: string | null;
   onboarding_completed_at: string | null;
   created_at: string;
   updated_at: string;
+};
+
+export type SellerDocument = {
+  id: string;
+  seller_user_id: string;
+  document_type: "business_permit" | "government_id";
+  storage_path: string;
+  uploaded_at: string;
 };
 
 export type Device = {
