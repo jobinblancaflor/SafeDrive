@@ -1,7 +1,5 @@
 "use client";
 
-import { useState } from "react";
-import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,7 +18,6 @@ const DAYS: { key: keyof BusinessHours; label: string }[] = [
 
 export type BusinessDetails = {
   businessName: string;
-  services: string[];
   businessHours: BusinessHours;
   contactPhone: string;
   contactEmail: string;
@@ -37,22 +34,6 @@ export function SellerStepBusiness({
   onNext: () => void;
   submitting?: boolean;
 }) {
-  const [serviceDraft, setServiceDraft] = useState("");
-
-  function addService() {
-    const s = serviceDraft.trim();
-    if (!s || value.services.includes(s)) {
-      setServiceDraft("");
-      return;
-    }
-    onChange({ ...value, services: [...value.services, s] });
-    setServiceDraft("");
-  }
-
-  function removeService(s: string) {
-    onChange({ ...value, services: value.services.filter((x) => x !== s) });
-  }
-
   function setDay(day: keyof BusinessHours, patch: Partial<{ open: string; close: string; closed: boolean }>) {
     const current = value.businessHours[day] ?? { open: "09:00", close: "17:00" };
     onChange({
@@ -61,7 +42,7 @@ export function SellerStepBusiness({
     });
   }
 
-  const canContinue = value.businessName.trim().length > 0 && value.services.length > 0;
+  const canContinue = value.businessName.trim().length > 0;
 
   return (
     <div className="space-y-6">
@@ -73,47 +54,6 @@ export function SellerStepBusiness({
           value={value.businessName}
           onChange={(e) => onChange({ ...value, businessName: e.target.value })}
         />
-      </div>
-
-      <div className="space-y-1">
-        <Label htmlFor="biz-services">Services offered</Label>
-        <div className="flex gap-2">
-          <Input
-            id="biz-services"
-            placeholder="e.g. Home cleaning"
-            value={serviceDraft}
-            onChange={(e) => setServiceDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === ",") {
-                e.preventDefault();
-                addService();
-              }
-            }}
-          />
-          <Button type="button" variant="outline" onClick={addService}>
-            Add
-          </Button>
-        </div>
-        {value.services.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-2">
-            {value.services.map((s) => (
-              <span
-                key={s}
-                className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1 text-sm text-slate-700"
-              >
-                {s}
-                <button
-                  type="button"
-                  onClick={() => removeService(s)}
-                  aria-label={`Remove ${s}`}
-                  className="text-slate-400 hover:text-slate-700"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
       </div>
 
       <div className="space-y-2">
