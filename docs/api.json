@@ -426,6 +426,31 @@
 
     {
       "method": "POST",
+      "path": "/api/seller-inquiries",
+      "description": "Creates a 'contact us' service request routed to Secure Signal staff, not the seller. Body: { seller_user_id: uuid, service_type: towing|battery|tire|lockout, message: string (1-2000 chars) }. Enforcement of 'seller never sees this' lives at the seller_inquiries RLS layer — the seller role has no read policy on that table at all, not just a UI omission.",
+      "auth": "session (rider only)",
+      "responses": {
+        "201": { "data": "SellerInquiry" },
+        "400": { "error": "invalid body" },
+        "403": { "error": "only riders can request a service" },
+        "404": { "error": "seller not found" }
+      }
+    },
+
+    {
+      "method": "POST",
+      "path": "/api/admin/inquiries/[id]/status",
+      "description": "Updates a seller_inquiries row's status (new/contacted/closed) as staff work the queue. Body: { status: new|contacted|closed }.",
+      "auth": "session (admin or authority only)",
+      "responses": {
+        "200": { "ok": true, "inquiry": { "id": "uuid", "status": "string" } },
+        "403": { "error": "forbidden" },
+        "404": { "error": "not found" }
+      }
+    },
+
+    {
+      "method": "POST",
       "path": "/api/account/delete",
       "description": "Self-service, irreversible account deletion. Hard-deletes the auth user, which cascades to profile/emergency_contacts/subscriptions/seller_profiles/sent incident_messages and the profile_images storage folder. devices/incidents/logs are anonymized (user_id set null) rather than deleted, per the existing on-delete-set-null schema design — those are safety/audit records, not personal data.",
       "auth": "session (acts only on the caller's own id — no target-user param)",

@@ -566,6 +566,31 @@
       }
     },
     {
+      "path": "/api/seller-inquiries",
+      "methods": ["POST"],
+      "auth": "rider only (session).",
+      "description": "Creates a 'contact us' service request routed to Secure Signal staff, not the seller — seller_inquiries' RLS has no seller-readable policy at all, so the seller can never read this even if this route were compromised.",
+      "schemas": { "postRequest": { "seller_user_id": "uuid", "service_type": "towing | battery | tire | lockout", "message": "string, 1-2000 chars" } },
+      "responses": {
+        "201": "{ data: SellerInquiry }",
+        "400": "{ error:\"invalid body\" }",
+        "403": "{ error:\"only riders can request a service\" }",
+        "404": "{ error:\"seller not found\" }"
+      }
+    },
+    {
+      "path": "/api/admin/inquiries/[id]/status",
+      "methods": ["POST"],
+      "auth": "admin or authority only (session).",
+      "description": "Updates a seller_inquiries row's status (new/contacted/closed) while staff work the queue.",
+      "schemas": { "postRequest": { "status": "new | contacted | closed" } },
+      "responses": {
+        "200": "{ ok: true, inquiry: { id, status } }",
+        "403": "{ error:\"forbidden\" }",
+        "404": "{ error:\"not found\" }"
+      }
+    },
+    {
       "path": "/api/account/delete",
       "methods": ["POST"],
       "auth": "any signed-in user; acts only on the caller's own id.",
