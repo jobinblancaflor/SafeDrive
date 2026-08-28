@@ -21,7 +21,7 @@ export async function POST() {
   const admin = createAdminClient();
   const { data: sellerProfile, error: fetchError } = await admin
     .from("seller_profiles")
-    .select("business_name, services, area_lat, area_lng, area_radius_meters")
+    .select("business_name, services, area_lat, area_lng, area_radius_meters, agreement_accepted_at")
     .eq("user_id", profile.id)
     .maybeSingle();
 
@@ -34,10 +34,27 @@ export async function POST() {
     !sellerProfile.services?.length ||
     sellerProfile.area_lat == null ||
     sellerProfile.area_lng == null ||
-    sellerProfile.area_radius_meters == null
+    sellerProfile.area_radius_meters == null ||
+    !sellerProfile.agreement_accepted_at
   ) {
     return NextResponse.json(
-      { error: "Finish both onboarding steps before submitting." },
+      { error: "Finish every onboarding step before submitting." },
+      { status: 400 },
+    );
+  }
+
+  const { data: documents, error: documentsError } = await admin
+    .from("seller_documents")
+    .select("document_type")
+    .eq("seller_user_id", profile.id);
+  if (documentsError) {
+    console.error("seller onboarding complete: documents fetch failed", documentsError);
+    return NextResponse.json({ error: "Could not load your documents." }, { status: 500 });
+  }
+  const documentTypes = new Set((documents ?? []).map((d) => d.document_type));
+  if (!documentTypes.has("business_permit") || !documentTypes.has("government_id")) {
+    return NextResponse.json(
+      { error: "Upload both required documents before submitting." },
       { status: 400 },
     );
   }
