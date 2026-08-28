@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { requireRole } from "@/lib/rbac";
 import { createClient } from "@/lib/supabase/server";
 import { PingView } from "@/components/admin/ping-view";
@@ -27,7 +28,9 @@ export default async function AdminPingPage() {
         <h1 className="text-2xl font-semibold">Ping</h1>
         <p className="text-sm text-slate-500">Search a device, view on map, send a ping.</p>
       </div>
-      <PingView devices={shaped} />
+      <Suspense fallback={null}>
+        <PingView devices={shaped} />
+      </Suspense>
     </div>
   );
 }
