@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { requireProfile } from "@/lib/rbac";
 import { createClient } from "@/lib/supabase/server";
 import { SellerOnboardingWizard } from "@/components/onboarding/seller-onboarding-wizard";
-import type { SellerProfile } from "@/lib/supabase/types";
+import type { SellerProfile, SellerDocument } from "@/lib/supabase/types";
 
 export default async function SellerOnboardingPage() {
   const profile = await requireProfile();
@@ -17,6 +17,11 @@ export default async function SellerOnboardingPage() {
     .eq("user_id", profile.id)
     .maybeSingle();
 
+  const { data: documents } = await supabase
+    .from("seller_documents")
+    .select("*")
+    .eq("seller_user_id", profile.id);
+
   return (
     <div className="space-y-6">
       <div>
@@ -27,7 +32,11 @@ export default async function SellerOnboardingPage() {
           Tell us about your business and where you operate.
         </p>
       </div>
-      <SellerOnboardingWizard userId={profile.id} initial={sellerProfile as SellerProfile | null} />
+      <SellerOnboardingWizard
+        userId={profile.id}
+        initial={sellerProfile as SellerProfile | null}
+        initialDocuments={(documents ?? []) as SellerDocument[]}
+      />
     </div>
   );
 }

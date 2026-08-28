@@ -20,16 +20,14 @@ export function SellerStepArea({
   value,
   onChange,
   onBack,
-  onFinish,
-  finishing,
-  finishError,
+  onNext,
+  submitting,
 }: {
   value: AreaDetails;
   onChange: (next: AreaDetails) => void;
   onBack: () => void;
-  onFinish: () => void;
-  finishing: boolean;
-  finishError: string | null;
+  onNext: () => void;
+  submitting?: boolean;
 }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -145,14 +143,12 @@ export function SellerStepArea({
         />
       </div>
 
-      {finishError && <p className="text-sm text-status-critical">{finishError}</p>}
-
       <div className="flex justify-between">
-        <Button type="button" variant="outline" onClick={onBack} disabled={finishing}>
+        <Button type="button" variant="outline" onClick={onBack} disabled={submitting}>
           Back
         </Button>
-        <Button type="button" onClick={onFinish} disabled={finishing}>
-          {finishing ? "Finishing…" : "Finish"}
+        <Button type="button" onClick={onNext} disabled={submitting}>
+          {submitting ? "Saving…" : "Continue"}
         </Button>
       </div>
     </div>
