@@ -284,6 +284,7 @@ export function PingMapImpl({
     <div className="h-[400px] rounded-lg overflow-hidden border">
       <MapContainer center={[center.lat, center.lng]} zoom={13} style={{ height: "100%", width: "100%" }}>
         <TileLayer url={TILE_URL} attribution={TILE_ATTRIBUTION} />
+        <FlyToPing point={point} />
         {point ? <SingleMarker point={point} /> : null}
         {point && accuracyMeters ? (
           <Circle
@@ -297,25 +298,38 @@ export function PingMapImpl({
   );
 }
 
-function SingleMarker({ point }: { point: LatLng }) {
+// Always mounted (unlike SingleMarker, which only mounts once `point`
+// first becomes non-null) so the "is this the map's very first point"
+// check isn't fooled by a marker that's really just appearing for the
+// first time after the map already rendered at DEFAULT_CENTER — that
+// case is exactly when a flyTo is needed, not when it should be skipped.
+function FlyToPing({ point }: { point: LatLng | null }) {
   const map = useMap();
+  const hadPointAtMount = useRef(point != null);
   const isFirstPoint = useRef(true);
 
   useEffect(() => {
-    const marker = L.marker([point.lat, point.lng], { icon: pinIcon("#2563eb") }).addTo(map);
+    if (!point) return;
 
-    // MapContainer's `center` prop only applies on initial mount — it's
-    // not reactive to later prop changes. Without this, the marker moves
-    // to a new point but the map itself never re-centers on it (e.g. a
-    // ping location arriving after the map already rendered at the
-    // default center). Skip the very first point since the initial
-    // `center` already put the map there.
     if (isFirstPoint.current) {
       isFirstPoint.current = false;
-    } else {
-      map.flyTo([point.lat, point.lng], map.getZoom());
+      // MapContainer's `center` prop already matched this point on mount
+      // (a point was available before the map ever rendered) — nothing to
+      // fly to.
+      if (hadPointAtMount.current) return;
     }
+    map.flyTo([point.lat, point.lng], map.getZoom());
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- point is a fresh object each render; compare by value, not identity
+  }, [map, point?.lat, point?.lng]);
 
+  return null;
+}
+
+function SingleMarker({ point }: { point: LatLng }) {
+  const map = useMap();
+
+  useEffect(() => {
+    const marker = L.marker([point.lat, point.lng], { icon: pinIcon("#2563eb") }).addTo(map);
     return () => {
       map.removeLayer(marker);
     };
