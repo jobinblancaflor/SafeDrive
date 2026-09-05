@@ -58,9 +58,53 @@ export type SellerProfile = {
   area_lat: number | null;
   area_lng: number | null;
   area_radius_meters: number | null;
+  agreement_accepted_at: string | null;
+  agreement_version: string | null;
   onboarding_completed_at: string | null;
   created_at: string;
   updated_at: string;
+};
+
+export type SellerDocument = {
+  id: string;
+  seller_user_id: string;
+  document_type: "business_permit" | "government_id";
+  storage_path: string;
+  uploaded_at: string;
+};
+
+export type SellerDirectoryEntry = {
+  user_id: string;
+  business_name: string | null;
+  services: string[];
+  business_hours: BusinessHours;
+  area_label: string | null;
+  area_lat: number | null;
+  area_lng: number | null;
+  area_radius_meters: number | null;
+  onboarding_completed_at: string;
+};
+
+export type InquiryStatus = "new" | "contacted" | "closed";
+
+export type SellerInquiry = {
+  id: string;
+  rider_user_id: string;
+  seller_user_id: string;
+  service_type: string;
+  message: string;
+  status: InquiryStatus;
+  created_at: string;
+};
+
+export type SellerReview = {
+  id: string;
+  seller_user_id: string;
+  rider_user_id: string;
+  rating: number;
+  body: string | null;
+  hidden_by_admin: boolean;
+  created_at: string;
 };
 
 export type Device = {

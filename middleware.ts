@@ -48,6 +48,7 @@ export async function middleware(request: NextRequest) {
   );
   const isAdmin = pathname.startsWith(ADMIN_PREFIX);
   const isAuthority = pathname.startsWith(AUTHORITY_PREFIX);
+  const isSellerOnboarding = pathname === "/onboarding/seller" || pathname.startsWith("/onboarding/seller/");
 
   // Unauthed users hitting protected routes → /login
   if (!user && !isPublic) {
@@ -57,15 +58,20 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // Role gates
-  if (user && (isAdmin || isAuthority)) {
+  // Fetch role once for any authenticated request on a protected route —
+  // reused by both the admin/authority gate below and the seller gate.
+  let role: string | undefined;
+  if (user && !isPublic) {
     const { data: profile } = await supabase
       .from("profiles")
       .select("role")
       .eq("id", user.id)
       .single();
+    role = profile?.role as string | undefined;
+  }
 
-    const role = profile?.role as string | undefined;
+  // Role gates
+  if (user && (isAdmin || isAuthority)) {
     if (isAdmin && role !== "admin") {
       const url = request.nextUrl.clone();
       url.pathname = "/";
@@ -74,6 +80,22 @@ export async function middleware(request: NextRequest) {
     if (isAuthority && role !== "admin" && role !== "authority") {
       const url = request.nextUrl.clone();
       url.pathname = "/";
+      return NextResponse.redirect(url);
+    }
+  }
+
+  // Seller onboarding gate — a seller who hasn't finished onboarding can
+  // only reach /onboarding/seller until they do. Page-level only: this
+  // middleware's own matcher (below) never runs for /api/*.
+  if (user && !isPublic && role === "seller" && !isSellerOnboarding) {
+    const { data: sellerProfile } = await supabase
+      .from("seller_profiles")
+      .select("onboarding_completed_at")
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (!sellerProfile?.onboarding_completed_at) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/onboarding/seller";
       return NextResponse.redirect(url);
     }
   }
