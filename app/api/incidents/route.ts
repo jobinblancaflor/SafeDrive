@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getBearerToken, createBearerClient } from "@/lib/supabase/bearer";
 import { isIncidentType, type IncidentType } from "@/lib/incident-type";
 
 const DEFAULT_LIMIT = 200;
@@ -25,8 +26,18 @@ function distanceMeters(
 // dashboard table + map. Supports filtering by created_at date, status, type,
 // and a free-text search across id / fullname / phone.
 export async function GET(req: Request) {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  // Web dashboard authenticates via session cookie; a native mobile client
+  // (no cookie jar for this domain) sends its Supabase access token as
+  // `Authorization: Bearer <token>` instead. Either way, the resulting
+  // client carries that identity into every query below, so Postgres RLS
+  // (not this route) is what actually scopes a rider to their own
+  // incidents versus staff seeing everything — buildQuery() below runs
+  // unchanged for both.
+  const bearerToken = getBearerToken(req);
+  const supabase = bearerToken ? createBearerClient(bearerToken) : createClient();
+  const {
+    data: { user },
+  } = bearerToken ? await supabase.auth.getUser(bearerToken) : await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "unauth" }, { status: 401 });
 
   const { data: profile } = await supabase
@@ -34,7 +45,7 @@ export async function GET(req: Request) {
     .select("role")
     .eq("id", user.id)
     .single();
-  if (!profile || !["admin", "authority"].includes(profile.role)) {
+  if (!profile || !["admin", "authority", "rider"].includes(profile.role)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 

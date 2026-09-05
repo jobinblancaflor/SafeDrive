@@ -177,8 +177,8 @@
     {
       "path": "/api/incidents",
       "methods": ["GET"],
-      "auth": "admin or authority only.",
-      "description": "Staff-only listing powering the admin/authority incidents dashboard. Supports date/status/type/search/location-radius filters and sorting. Realtime-capable: clients subscribe to postgres_changes on public.incidents and merge deltas into this slice.",
+      "auth": "session cookie (web dashboard) OR `Authorization: Bearer <supabase access token>` (native/mobile clients, which have no cookie jar for this domain). Either way: admin, authority, or rider. Not scoped by this route — Postgres RLS on incidents does the scoping: admin/authority see every incident, a rider sees only rows where incidents.user_id = their own id. Any other role gets 403.",
+      "description": "Listing powering the admin/authority incidents dashboard AND a rider's own incident history in the mobile app. Supports date/status/type/search/location-radius filters and sorting — the same query runs for every caller, RLS alone decides which rows come back. Realtime-capable: clients subscribe to postgres_changes on public.incidents and merge deltas into this slice.",
       "query": {
         "date": "YYYY-MM-DD (optional) — UTC calendar day, filters created_at",
         "from": "ISO timestamp (optional) — inclusive lower bound when date not set",

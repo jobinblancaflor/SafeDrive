@@ -188,8 +188,8 @@
     {
       "method": "GET",
       "path": "/api/incidents",
-      "description": "List incidents for the dashboard. Filterable by date/status/type/search/location radius, sortable.",
-      "auth": "session (admin/authority)",
+      "description": "List incidents — powers both the admin/authority dashboard and a rider's own incident history in the mobile app. Filterable by date/status/type/search/location radius, sortable. The route runs the same query for everyone; Postgres RLS on incidents is what actually scopes results (admin/authority see all, a rider sees only their own user_id).",
+      "auth": "session cookie (web) or Authorization: Bearer <supabase access token> (mobile/native clients, which have no cookie for this domain). Role must be admin, authority, or rider.",
       "query": {
         "date": "YYYY-MM-DD (UTC) (optional)",
         "from": "ISO timestamp (optional)",
