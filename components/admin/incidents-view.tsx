@@ -606,7 +606,7 @@ export function IncidentsView({
             selected={selected}
             address={address}
             addressLoading={addressLoading}
-            contacts={selected?.user_id ? contactsByUserId[selected.user_id] : []}
+            contacts={selected?.user_id ? contactsByUserId[selected.user_id] ?? [] : []}
             stopPending={stopPending}
             stopResult={stopResult}
             onStop={onStop}
@@ -626,7 +626,7 @@ export function IncidentsView({
             selected={selected}
             address={address}
             addressLoading={addressLoading}
-            contacts={selected?.user_id ? contactsByUserId[selected.user_id] : []}
+            contacts={selected?.user_id ? contactsByUserId[selected.user_id] ?? [] : []}
             stopPending={stopPending}
             stopResult={stopResult}
             onStop={onStop}
