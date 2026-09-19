@@ -28,10 +28,13 @@ export async function POST(_req: Request, ctx: { params: { id: string } }) {
     return NextResponse.json({ error: "user has no email" }, { status: 404 });
   }
 
-  const redirectTo =
-    process.env.NEXT_PUBLIC_SITE_URL
-      ? `${process.env.NEXT_PUBLIC_SITE_URL.replace(/\/$/, "")}/auth/reset-password`
-      : undefined;
+  // Never derive the link origin from request headers (reset-link poisoning).
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
+  if (!siteUrl) {
+    console.error("reset-password: NEXT_PUBLIC_SITE_URL is not configured");
+    return NextResponse.json({ error: "server misconfigured" }, { status: 500 });
+  }
+  const redirectTo = `${siteUrl.replace(/\/$/, "")}/reset-password`;
 
   const { error } = await admin.auth.resetPasswordForEmail(target.user.email, {
     redirectTo,
