@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireRole } from "@/lib/rbac";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/utils";
@@ -17,6 +18,10 @@ export default async function AdminUserDetail({ params }: { params: { id: string
     .eq("id", params.id)
     .single();
   if (!profile) notFound();
+
+  // Email lives only in auth.users — service-role read, already admin-gated above.
+  const { data: authUser } = await createAdminClient().auth.admin.getUserById(profile.id);
+  const email = authUser?.user?.email ?? null;
 
   const { data: contacts } = await supabase
     .from("emergency_contacts")
@@ -42,6 +47,7 @@ export default async function AdminUserDetail({ params }: { params: { id: string
         <CardContent className="space-y-4">
           <UserDetailsForm userId={profile.id} initial={{ fullname: profile.fullname, phone: profile.phone }} />
           <div className="grid gap-3 md:grid-cols-3">
+            <Field label="Email" value={email ?? "—"} />
             <Field label="Joined" value={formatDate(profile.created_at)} />
             <div>
               <p className="text-xs uppercase text-slate-500">Role</p>
