@@ -24,6 +24,20 @@ export async function POST() {
 
   const admin = createAdminClient();
 
+  // Incidents survive deletion as anonymized history, but their queued /
+  // sent SMS rows hold emergency contacts' phone numbers — purge them.
+  const { data: ownIncidents } = await admin.from("incidents").select("id").eq("user_id", profile.id);
+  if (ownIncidents?.length) {
+    const { error: smsError } = await admin
+      .from("sms_outbox")
+      .delete()
+      .in(
+        "incident_id",
+        ownIncidents.map((i) => i.id),
+      );
+    if (smsError) console.error("account delete: sms_outbox purge failed:", smsError);
+  }
+
   const { data: files } = await admin.storage.from("profile_images").list(profile.id);
   if (files?.length) {
     await admin.storage.from("profile_images").remove(files.map((f) => `${profile.id}/${f.name}`));

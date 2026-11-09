@@ -154,7 +154,7 @@
     {
       "method": "POST",
       "path": "/api/incidents/report",
-      "description": "Current incident-creation endpoint. Sent once when an SOS/fall trigger first fires.",
+      "description": "Current incident-creation endpoint. Sent once when an SOS/fall trigger first fires. Side effect: queues one SMS per emergency contact of the rider (sms_outbox, 10s apart), delivered by POST /api/sms/dispatch; remaining SMS are skipped if the incident is canceled. Scheduling failures never fail the report.",
       "auth": "device (X-Device-Key required)",
       "body": {
         "lat": "number (required, -90..90)",
@@ -458,6 +458,18 @@
         "200": { "data": "SellerReview" },
         "400": { "error": "invalid body" },
         "403": { "error": "only riders can leave a review | Contact us about this seller before leaving a review." }
+      }
+    },
+
+    {
+      "method": "POST",
+      "path": "/api/sms/dispatch",
+      "description": "Internal: invoked every 2s by the pg_cron job sms-dispatch (pg_net) while any sms_outbox row is due. Claims up to 20 due rows and sends them sequentially via SMS_PROVIDER. Canceled incident -> skipped; send error -> retried up to 3 attempts 10s apart, then failed. Empty body.",
+      "auth": "shared secret header X-Dispatch-Key (= SMS_DISPATCH_SECRET; fails closed with 503 if unset)",
+      "responses": {
+        "200": { "claimed": "number", "sent": "number", "skipped": "number", "failed": "number", "retried": "number" },
+        "401": { "error": "unauthorized" },
+        "503": { "error": "sms dispatch is not configured | sms provider is not configured" }
       }
     },
 
