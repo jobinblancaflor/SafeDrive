@@ -39,6 +39,7 @@ export type UserRole = "rider" | "admin" | "authority" | "seller";
 export type AdminUserRow = {
   id: string;
   fullname: string;
+  email: string | null;
   phone: string | null;
   role: UserRole;
   status: ProfileStatus;
@@ -77,7 +78,7 @@ export function UsersView({
     const term = query.trim().toLowerCase();
     if (!term) return users;
     return users.filter((u) =>
-      [u.fullname, u.phone ?? "", u.id, u.role, u.status]
+      [u.fullname, u.email ?? "", u.phone ?? "", u.id, u.role, u.status]
         .join(" ")
         .toLowerCase()
         .includes(term),
@@ -162,7 +163,7 @@ export function UsersView({
       pushFeedback("err", json.error ?? "Reset failed");
       return false;
     }
-    pushFeedback("ok", `Reset email sent to ${user.fullname}`);
+    pushFeedback("ok", `Reset email sent to ${user.email ?? user.fullname}`);
     return true;
   }
 
@@ -176,7 +177,7 @@ export function UsersView({
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search by name, phone, role…"
+            placeholder="Search by name, email, phone, role…"
             className="pl-9"
           />
         </div>
@@ -208,6 +209,7 @@ export function UsersView({
           <TableHeader>
             <TableRow>
               <TableHead>Name</TableHead>
+              <TableHead>Email</TableHead>
               <TableHead>Phone</TableHead>
               <TableHead>Role</TableHead>
               <TableHead>Status</TableHead>
@@ -218,7 +220,7 @@ export function UsersView({
           <TableBody>
             {pageUsers.length === 0 && (
               <TableRow>
-                <TableCell colSpan={6} className="py-10 text-center text-slate-500">
+                <TableCell colSpan={7} className="py-10 text-center text-slate-500">
                   No users match your search.
                 </TableCell>
               </TableRow>
@@ -230,6 +232,7 @@ export function UsersView({
               return (
                 <TableRow key={u.id} className={u.status === "Deleted" ? "opacity-60" : undefined}>
                   <TableCell className="font-medium">{u.fullname}</TableCell>
+                  <TableCell className="text-slate-600">{u.email ?? "—"}</TableCell>
                   <TableCell>{u.phone ?? "—"}</TableCell>
                   <TableCell>
                     <select
