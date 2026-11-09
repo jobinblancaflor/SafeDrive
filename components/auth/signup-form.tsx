@@ -17,24 +17,47 @@ export function SignupForm() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [checkEmail, setCheckEmail] = useState(false);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError(null);
     const supabase = createClient();
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { fullname, phone } },
+      options: {
+        data: { fullname, phone },
+        emailRedirectTo: `${window.location.origin}/email-confirmed`,
+      },
     });
     setLoading(false);
     if (error) {
       setError(error.message);
       return;
     }
+    // With email confirmation enabled, signUp returns no session until the
+    // user clicks the emailed link — pushing to "/" would just bounce them
+    // to /login with no explanation.
+    if (!data.session) {
+      setCheckEmail(true);
+      return;
+    }
     router.push("/");
     router.refresh();
+  }
+
+  if (checkEmail) {
+    return (
+      <div className="mt-8 space-y-2" role="status">
+        <p className="text-sm font-medium text-slate-900">Check your email</p>
+        <p className="text-sm text-slate-600">
+          We sent a confirmation link to <span className="font-medium">{email}</span>. Click it to
+          activate your account, then sign in.
+        </p>
+      </div>
+    );
   }
 
   return (
