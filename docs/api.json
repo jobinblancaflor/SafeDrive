@@ -463,6 +463,19 @@
 
     {
       "method": "POST",
+      "path": "/api/admin/sellers/[id]/verification",
+      "description": "Sets a seller's verification_status (approved/rejected/pending) after staff review the business permit and government ID. Rejection requires a note, which the seller sees on their business profile page. Only approved, onboarding-complete sellers are listed in seller_directory. Body: { status: approved|rejected|pending, note?: string }.",
+      "auth": "session (admin only)",
+      "responses": {
+        "200": { "ok": true, "seller": { "user_id": "uuid", "verification_status": "string", "verification_note": "string|null", "verified_at": "timestamptz|null" } },
+        "400": { "error": "invalid body | A reason is required when rejecting." },
+        "403": { "error": "forbidden" },
+        "404": { "error": "not found" }
+      }
+    },
+
+    {
+      "method": "POST",
       "path": "/api/admin/reviews/[id]/hide",
       "description": "Sets or clears hidden_by_admin on a review (moderation — hidden reviews stop showing to riders/sellers but stay visible to staff and to the reviewing rider). Body: { hidden: boolean }.",
       "auth": "session (admin or authority only)",
