@@ -6,6 +6,12 @@ import { CalendarDays, LayoutGrid, Loader2, Map as MapIcon, Table2, Phone, MapPi
 import { IncidentMap, type MapIncident } from "@/components/map/incident-map";
 import { IncidentsTable, type IncidentRow } from "@/components/admin/incidents-table";
 import { IncidentTypeBadge } from "@/components/admin/incident-type-badge";
+import {
+  EscalationBadge,
+  EscalationBanner,
+  useStaffList,
+  type StaffMember,
+} from "@/components/admin/incident-escalation";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -38,6 +44,9 @@ export type ViewIncident = {
   user_phone: string | null;
   user_profile_img: string | null;
   device_uuid: string | null;
+  assigned_to: string | null;
+  acknowledged_at: string | null;
+  escalation_level: number;
 };
 
 type RealtimeIncidentRow = {
@@ -228,7 +237,7 @@ export function IncidentsView({
             const { data, error } = await supabase
               .from("incidents")
               .select(
-                "id, occurred_at, created_at, status, read, incident_type, lat, lng, user_id, device_id, profiles!incidents_user_id_fkey(fullname, phone, profile_img)",
+                "id, occurred_at, created_at, status, read, incident_type, lat, lng, user_id, device_id, assigned_to, acknowledged_at, escalation_level, profiles!incidents_user_id_fkey(fullname, phone, profile_img)",
               )
               .eq("id", row.id)
               .maybeSingle();
@@ -244,6 +253,9 @@ export function IncidentsView({
               lng: number | null;
               user_id: string | null;
               device_id: string | null;
+              assigned_to: string | null;
+              acknowledged_at: string | null;
+              escalation_level: number | null;
               profiles: { fullname: string; phone: string | null; profile_img: string | null } | null;
             };
             let deviceUuid: string | null = null;
@@ -270,6 +282,9 @@ export function IncidentsView({
               user_phone: r.profiles?.phone ?? null,
               user_profile_img: r.profiles?.profile_img ?? null,
               device_uuid: deviceUuid,
+              assigned_to: r.assigned_to ?? null,
+              acknowledged_at: r.acknowledged_at ?? null,
+              escalation_level: r.escalation_level ?? 0,
             };
 
             // Only merge if the row fits active filter constraints (date, status, type, search, radius)
@@ -334,6 +349,9 @@ export function IncidentsView({
     [incidents],
   );
 
+  const staff = useStaffList();
+  const staffName = useMemo(() => new Map(staff.map((m) => [m.id, m.fullname])), [staff]);
+
   const tableIncidents: IncidentRow[] = useMemo(
     () =>
       incidents.map((i) => ({
@@ -343,8 +361,11 @@ export function IncidentsView({
         read: i.read,
         incident_type: i.incident_type,
         user_name: i.user_name,
+        escalation_level: i.escalation_level,
+        acknowledged: Boolean(i.acknowledged_at),
+        assignee_name: i.assigned_to ? staffName.get(i.assigned_to) ?? "Assigned" : null,
       })),
-    [incidents],
+    [incidents, staffName],
   );
 
   const selected = selectedId ? incidents.find((i) => i.id === selectedId) ?? null : null;
@@ -403,12 +424,72 @@ export function IncidentsView({
         body: JSON.stringify({ status: nextStatus }),
       });
       if (res.ok) {
+        const ackAt = new Date().toISOString();
         setIncidents((prev) =>
-          prev.map((i) => (i.id === selected.id ? { ...i, status: nextStatus, read: true } : i)),
+          prev.map((i) =>
+            i.id === selected.id
+              ? { ...i, status: nextStatus, read: true, acknowledged_at: i.acknowledged_at ?? ackAt }
+              : i,
+          ),
         );
       }
     } finally {
       setStatusPending(false);
+    }
+  }
+
+  const [assignPending, setAssignPending] = useState(false);
+  const [assignError, setAssignError] = useState<string | null>(null);
+
+  async function onAcknowledge() {
+    if (!selected) return;
+    setAssignPending(true);
+    setAssignError(null);
+    try {
+      const res = await fetch(`/api/incident/${selected.id}/acknowledge`, { method: "POST" });
+      if (!res.ok) {
+        setAssignError("Could not acknowledge");
+        return;
+      }
+      const ackAt = new Date().toISOString();
+      setIncidents((prev) =>
+        prev.map((i) => (i.id === selected.id ? { ...i, acknowledged_at: i.acknowledged_at ?? ackAt } : i)),
+      );
+    } finally {
+      setAssignPending(false);
+    }
+  }
+
+  async function onAssign(assigneeId: string | null) {
+    if (!selected) return;
+    setAssignPending(true);
+    setAssignError(null);
+    try {
+      const res = await fetch(`/api/incident/${selected.id}/assign`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ assignee_id: assigneeId }),
+      });
+      if (!res.ok) {
+        const json = (await res.json().catch(() => ({}))) as { error?: string };
+        setAssignError(json.error ?? "Could not assign");
+        return;
+      }
+      const ackAt = new Date().toISOString();
+      setIncidents((prev) =>
+        prev.map((i) =>
+          i.id === selected.id
+            ? {
+                ...i,
+                assigned_to: assigneeId,
+                read: true,
+                acknowledged_at: assigneeId ? i.acknowledged_at ?? ackAt : i.acknowledged_at,
+              }
+            : i,
+        ),
+      );
+    } finally {
+      setAssignPending(false);
     }
   }
 
@@ -417,6 +498,7 @@ export function IncidentsView({
 
   return (
     <div className="space-y-4">
+      <EscalationBanner incidents={incidents} onSelect={setSelectedId} />
       <div className="rounded-lg border bg-white p-4 space-y-4">
         {/* Date Scope Controls */}
         <div className="flex flex-wrap items-center justify-between gap-4 border-b pb-4">
@@ -612,6 +694,11 @@ export function IncidentsView({
             onStop={onStop}
             statusPending={statusPending}
             onStatusChange={onStatusChange}
+            staff={staff}
+            assignPending={assignPending}
+            assignError={assignError}
+            onAcknowledge={onAcknowledge}
+            onAssign={onAssign}
             onClose={() => setSelectedId(null)}
           />
         </div>
@@ -632,6 +719,11 @@ export function IncidentsView({
             onStop={onStop}
             statusPending={statusPending}
             onStatusChange={onStatusChange}
+            staff={staff}
+            assignPending={assignPending}
+            assignError={assignError}
+            onAcknowledge={onAcknowledge}
+            onAssign={onAssign}
             onClose={() => setSelectedId(null)}
           />
         </div>
@@ -703,6 +795,11 @@ function IncidentDetailPanel({
   onStop,
   statusPending,
   onStatusChange,
+  staff,
+  assignPending,
+  assignError,
+  onAcknowledge,
+  onAssign,
   onClose,
 }: {
   selected: ViewIncident | null;
@@ -714,6 +811,11 @@ function IncidentDetailPanel({
   onStop: () => void;
   statusPending: boolean;
   onStatusChange: (status: "received" | "reported" | "canceled") => void;
+  staff: StaffMember[];
+  assignPending: boolean;
+  assignError: string | null;
+  onAcknowledge: () => void;
+  onAssign: (assigneeId: string | null) => void;
   onClose: () => void;
 }) {
   if (!selected) {
@@ -744,7 +846,41 @@ function IncidentDetailPanel({
             {selected.status}
           </Badge>
           <IncidentTypeBadge type={selected.incident_type} size="sm" />
+          <EscalationBadge
+            level={selected.escalation_level}
+            acknowledged={Boolean(selected.acknowledged_at) || selected.status === "canceled"}
+          />
         </div>
+      </div>
+
+      <div className="space-y-2 rounded border bg-slate-50 p-3">
+        <label className="flex flex-col gap-1 text-xs">
+          <span className="uppercase text-slate-500">Assigned to</span>
+          <select
+            value={selected.assigned_to ?? ""}
+            disabled={assignPending}
+            onChange={(e) => onAssign(e.target.value || null)}
+            className="h-9 rounded-md border border-slate-200 bg-white px-2 text-sm"
+          >
+            <option value="">Unassigned</option>
+            {staff.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.fullname} ({m.role})
+              </option>
+            ))}
+            {selected.assigned_to && !staff.some((m) => m.id === selected.assigned_to) ? (
+              <option value={selected.assigned_to}>Current assignee</option>
+            ) : null}
+          </select>
+        </label>
+        {!selected.acknowledged_at && selected.status !== "canceled" ? (
+          <Button size="sm" className="w-full" onClick={onAcknowledge} disabled={assignPending}>
+            Acknowledge
+          </Button>
+        ) : selected.acknowledged_at ? (
+          <p className="text-xs text-slate-500">Acknowledged {formatDate(selected.acknowledged_at)}</p>
+        ) : null}
+        {assignError ? <p className="text-xs text-status-critical">{assignError}</p> : null}
       </div>
 
       <div className="flex items-start gap-3">

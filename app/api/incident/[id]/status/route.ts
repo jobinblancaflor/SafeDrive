@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
+import { acknowledgeIncident } from "@/lib/incident-assignment";
 
 const Body = z.object({ status: z.enum(["received", "reported", "canceled"]) });
 
@@ -32,6 +33,8 @@ export async function PATCH(req: Request, ctx: { params: { id: string } }) {
     console.error("incident/[id]/status failed:", error);
     return NextResponse.json({ error: "failed to update status" }, { status: 500 });
   }
+
+  await acknowledgeIncident(supabase, ctx.params.id, user.id);
 
   await supabase.from("logs").insert({
     actor: user.id,

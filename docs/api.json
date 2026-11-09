@@ -463,6 +463,42 @@
 
     {
       "method": "POST",
+      "path": "/api/incident/[id]/acknowledge",
+      "description": "Marks the incident acknowledged by the caller if not already acknowledged. Unacknowledged, non-canceled incidents from the last 24h are escalated by pg_cron job incident-escalation (escalate_stale_incidents, every 30s): level 1 at 2 min, 2 at 4 min, 3 at 6 min, each logged as incident.escalated. Assigning or changing status also acknowledges.",
+      "auth": "session (admin or authority only)",
+      "responses": {
+        "200": { "data": { "id": "uuid", "acknowledged_at": "timestamptz", "acknowledged_by": "uuid", "escalation_level": "number" } },
+        "403": { "error": "forbidden" },
+        "404": { "error": "not found" }
+      }
+    },
+
+    {
+      "method": "POST",
+      "path": "/api/incident/[id]/assign",
+      "description": "Assigns the incident to an admin/authority user, or unassigns with null. Assigning also acknowledges. Body: { assignee_id: uuid | null }.",
+      "auth": "session (admin or authority only)",
+      "responses": {
+        "200": { "data": { "id": "uuid", "assigned_to": "uuid|null", "assigned_at": "timestamptz|null" } },
+        "400": { "error": "invalid body | assignee must be an admin or authority" },
+        "403": { "error": "forbidden" },
+        "404": { "error": "not found" }
+      }
+    },
+
+    {
+      "method": "GET",
+      "path": "/api/staff",
+      "description": "Lists staff (admin and authority profiles) for the incident assignee picker.",
+      "auth": "session (admin or authority only)",
+      "responses": {
+        "200": { "staff": [{ "id": "uuid", "fullname": "string", "role": "admin|authority" }] },
+        "403": { "error": "forbidden" }
+      }
+    },
+
+    {
+      "method": "POST",
       "path": "/api/admin/reviews/[id]/hide",
       "description": "Sets or clears hidden_by_admin on a review (moderation — hidden reviews stop showing to riders/sellers but stay visible to staff and to the reviewing rider). Body: { hidden: boolean }.",
       "auth": "session (admin or authority only)",
