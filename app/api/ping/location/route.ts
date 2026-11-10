@@ -36,9 +36,19 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "too many requests" }, { status: 429 });
   }
 
+  // A location report proves the device got the ping, so it also counts
+  // as the ack — the device app reports location without ever calling
+  // PATCH /api/ping, which left every ping stuck at 'sent'.
+  const now = new Date().toISOString();
+  await supabase
+    .from("pings")
+    .update({ received_at: now })
+    .eq("id", ping_id)
+    .is("received_at", null);
+
   const { data, error } = await supabase
     .from("pings")
-    .update({ lat, lng, accuracy: accuracy ?? null })
+    .update({ lat, lng, accuracy: accuracy ?? null, located_at: now, status: "received" })
     .eq("id", ping_id)
     .select()
     .maybeSingle();

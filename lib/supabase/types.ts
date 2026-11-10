@@ -148,6 +148,12 @@ export type Ping = {
   device_id: string;
   ping_date: string;
   status: PingStatus;
+  lat: number | null;
+  lng: number | null;
+  accuracy: number | null;
+  received_at: string | null;
+  located_at: string | null;
+  push_error: string | null;
 };
 
 export type ContactSubmission = {
@@ -197,7 +203,7 @@ export type Database = {
       notifications: { Row: Notification; Insert: Omit<Notification, "id" | "created_at">; Update: Partial<Notification> };
       incidents: { Row: Incident; Insert: Omit<Incident, "id" | "occurred_at" | "created_at">; Update: Partial<Incident> };
       incident_logs: { Row: IncidentLog; Insert: Omit<IncidentLog, "id" | "created_at">; Update: Partial<IncidentLog> };
-      pings: { Row: Ping; Insert: Omit<Ping, "id" | "ping_date">; Update: Partial<Ping> };
+      pings: { Row: Ping; Insert: Pick<Ping, "device_id"> & Partial<Ping>; Update: Partial<Ping> };
       contacts: { Row: ContactSubmission; Insert: Omit<ContactSubmission, "id" | "created_at">; Update: Partial<ContactSubmission> };
       subscriptions: { Row: Subscription; Insert: Omit<Subscription, "id" | "created_at">; Update: Partial<Subscription> };
       logs: { Row: Log; Insert: Omit<Log, "id" | "created_at">; Update: Partial<Log> };

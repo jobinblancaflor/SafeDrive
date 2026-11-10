@@ -276,21 +276,22 @@
       "path": "/api/ping",
       "methods": ["POST", "PATCH"],
       "auth": "POST: admin or authority. PATCH: device (X-Device-Key required).",
-      "description": "Authority/admin pings a device; device acks receipt. Triggers FCM push via sendPing() when the device has a registered token.",
+      "description": "Authority/admin pings a device; device acks receipt. Triggers FCM push via sendPing() when the device has a registered token. A failed push is saved on the row as push_error. PATCH sets status=received and received_at on the first ack only; repeat acks return the row unchanged. The dashboard treats a ping still at status=sent after 60s as 'no response' (derived, not stored — lib/ping-status.ts) and offers a retry, which is a new POST.",
       "schemas": {
         "postRequest": { "device_id": "uuid" },
         "patchRequest": { "ping_id": "uuid" }
       },
       "responses": {
-        "201": "POST -> { data: ping, pushed: boolean, pushError?: string }",
-        "200": "PATCH -> { data: ping with status:\"received\" }",
+        "201": "POST -> { data: ping (incl. push_error), pushed: boolean, pushError?: string }",
+        "200": "PATCH -> { data: ping with status:\"received\", received_at }",
+        "404": "PATCH only — { error:\"ping not found\" }",
         "400": "{ error:\"invalid body\" }",
         "401": "POST: { error:\"unauth\" }. PATCH: bad/missing X-Device-Key.",
         "403": "POST only — { error:\"forbidden\" }",
         "429": "PATCH only — { error:\"too many requests\" }"
       },
       "sideEffects": [
-        "Insert row into pings (POST).",
+        "Insert row into pings (POST); set pings.push_error if the push failed.",
         "Lookup device's registered FCM token, send push (best-effort, errors logged not thrown).",
         "Insert log row action=ping.sent, entity=device, entity_id=device_id, meta.ping_id."
       ]
@@ -327,7 +328,7 @@
       "path": "/api/ping/location",
       "methods": ["POST"],
       "auth": "Device (X-Device-Key required).",
-      "description": "Device reports its current location for a specific ping, updating pings.lat/lng/accuracy for the row matching ping_id. The admin ping map re-centers on this location and draws accuracy as a radius circle around the marker.",
+      "description": "Device reports its current location for a specific ping, updating pings.lat/lng/accuracy and located_at for the row matching ping_id. Also counts as the ack: sets status=received and, if not already set, received_at — so a device that never calls PATCH /api/ping still shows as answered. The admin ping map re-centers on this location and draws accuracy as a radius circle around the marker.",
       "schemas": {
         "postRequest": {
           "ping_id": "uuid (required)",
