@@ -603,6 +603,19 @@
       }
     },
     {
+      "path": "/api/admin/sellers/[id]/verification",
+      "methods": ["POST"],
+      "auth": "admin only (session).",
+      "description": "Approves, rejects (reason required), or resets to pending a seller's document verification. [id] is the seller's user id. Only approved, onboarding-complete sellers appear in seller_directory.",
+      "schemas": { "postRequest": { "status": "approved | rejected | pending", "note": "string, required when rejecting, max 1000 chars" } },
+      "responses": {
+        "200": "{ ok: true, seller: { user_id, verification_status, verification_note, verified_at } }",
+        "400": "{ error:\"invalid body\" | \"A reason is required when rejecting.\" }",
+        "403": "{ error:\"forbidden\" }",
+        "404": "{ error:\"not found\" }"
+      }
+    },
+    {
       "path": "/api/admin/reviews/[id]/hide",
       "methods": ["POST"],
       "auth": "admin or authority only (session).",

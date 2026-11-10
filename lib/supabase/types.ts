@@ -61,9 +61,15 @@ export type SellerProfile = {
   agreement_accepted_at: string | null;
   agreement_version: string | null;
   onboarding_completed_at: string | null;
+  verification_status: SellerVerificationStatus;
+  verification_note: string | null;
+  verified_at: string | null;
+  verified_by: string | null;
   created_at: string;
   updated_at: string;
 };
+
+export type SellerVerificationStatus = "pending" | "approved" | "rejected";
 
 export type SellerDocument = {
   id: string;

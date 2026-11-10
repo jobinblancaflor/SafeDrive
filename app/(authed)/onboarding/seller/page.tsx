@@ -32,11 +32,47 @@ export default async function SellerOnboardingPage() {
           Tell us about your business and where you operate.
         </p>
       </div>
+      {sellerProfile?.onboarding_completed_at ? (
+        <VerificationBanner
+          status={(sellerProfile as SellerProfile).verification_status}
+          note={(sellerProfile as SellerProfile).verification_note}
+        />
+      ) : null}
       <SellerOnboardingWizard
         userId={profile.id}
         initial={sellerProfile as SellerProfile | null}
         initialDocuments={(documents ?? []) as SellerDocument[]}
       />
+    </div>
+  );
+}
+
+function VerificationBanner({
+  status,
+  note,
+}: {
+  status: SellerProfile["verification_status"];
+  note: string | null;
+}) {
+  if (status === "approved") {
+    return (
+      <div className="rounded-md border border-status-success/30 bg-status-success/10 p-4 text-sm text-status-success">
+        Your business is verified and listed in the service directory.
+      </div>
+    );
+  }
+  if (status === "rejected") {
+    return (
+      <div className="rounded-md border border-status-critical/30 bg-status-critical/10 p-4 text-sm text-status-critical">
+        <p className="font-medium">Your documents were not approved.</p>
+        {note ? <p className="mt-1">Reason: {note}</p> : null}
+        <p className="mt-1">Update your details or documents below and our team will review them again.</p>
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-md border border-status-warning/30 bg-status-warning/10 p-4 text-sm text-status-warning">
+      Your documents are under review. You&apos;ll appear in the service directory once our team approves them.
     </div>
   );
 }
