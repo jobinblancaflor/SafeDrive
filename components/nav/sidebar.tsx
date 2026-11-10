@@ -11,6 +11,7 @@ const adminLinks = [
   { href: "/admin/incidents", label: "Incidents" },
   { href: "/monitor", label: "Monitor" },
   { href: "/admin/ping", label: "Ping" },
+  { href: "/admin/sellers", label: "Sellers" },
   { href: "/admin/settings", label: "Settings" },
 ];
 
