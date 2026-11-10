@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import Link from "next/link";
 import { formatDate } from "@/lib/utils";
 import { IncidentTypeBadge } from "@/components/admin/incident-type-badge";
+import { EscalationBadge } from "@/components/admin/incident-escalation";
 import type { IncidentType } from "@/lib/incident-type";
 
 export type IncidentRow = {
@@ -12,6 +13,9 @@ export type IncidentRow = {
   read: boolean;
   incident_type: IncidentType | null;
   user_name: string | null;
+  escalation_level?: number;
+  acknowledged?: boolean;
+  assignee_name?: string | null;
 };
 
 export function IncidentsTable({
@@ -49,7 +53,16 @@ export function IncidentsTable({
                 <IncidentTypeBadge type={i.incident_type} size="sm" />
               </TableCell>
               <TableCell>
-                <Badge variant={i.status === "reported" ? "success" : i.status === "canceled" ? "destructive" : "warning"}>{i.status}</Badge>
+                <div className="flex flex-wrap items-center gap-1">
+                  <Badge variant={i.status === "reported" ? "success" : i.status === "canceled" ? "destructive" : "warning"}>{i.status}</Badge>
+                  {i.acknowledged !== undefined ? (
+                    <EscalationBadge
+                      level={i.escalation_level ?? 0}
+                      acknowledged={i.acknowledged || i.status === "canceled"}
+                    />
+                  ) : null}
+                </div>
+                {i.assignee_name ? <p className="mt-1 text-xs text-slate-500">Assigned: {i.assignee_name}</p> : null}
               </TableCell>
               <TableCell>{i.read ? "Yes" : "No"}</TableCell>
               {showActions && (

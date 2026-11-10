@@ -90,9 +90,11 @@ export async function GET(req: Request) {
   );
 
   const buildQuery = (includeOccurredAt: boolean) => {
-    const incidentFields = includeOccurredAt
-      ? "id, occurred_at, created_at, status, read, incident_type, lat, lng, user_id, device_id, profiles!incidents_user_id_fkey(fullname, phone, profile_img)"
-      : "id, created_at, status, read, incident_type, lat, lng, user_id, device_id, profiles!incidents_user_id_fkey(fullname, phone, profile_img)";
+    // Typed as plain string: the literal select strings are long enough
+    // that supabase-js's select-string type parser blows TS's union limit.
+    const incidentFields: string = includeOccurredAt
+      ? "id, occurred_at, created_at, status, read, incident_type, lat, lng, user_id, device_id, assigned_to, acknowledged_at, escalation_level, profiles!incidents_user_id_fkey(fullname, phone, profile_img)"
+      : "id, created_at, status, read, incident_type, lat, lng, user_id, device_id, assigned_to, acknowledged_at, escalation_level, profiles!incidents_user_id_fkey(fullname, phone, profile_img)";
     const sortField = includeOccurredAt && sortBy === "occurred_at" ? "occurred_at" : "created_at";
     let query = supabase
       .from("incidents")
@@ -148,6 +150,9 @@ export async function GET(req: Request) {
     lng: number | null;
     user_id: string | null;
     device_id: string | null;
+    assigned_to: string | null;
+    acknowledged_at: string | null;
+    escalation_level: number | null;
     profiles: { fullname: string; phone: string | null; profile_img: string | null } | null;
   };
 
@@ -193,6 +198,9 @@ export async function GET(req: Request) {
     user_phone: r.profiles?.phone ?? null,
     user_profile_img: r.profiles?.profile_img ?? null,
     device_uuid: r.device_id,
+    assigned_to: r.assigned_to ?? null,
+    acknowledged_at: r.acknowledged_at ?? null,
+    escalation_level: r.escalation_level ?? 0,
   }));
 
   return NextResponse.json({ incidents, total: incidents.length });
