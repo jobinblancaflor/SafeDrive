@@ -5,6 +5,7 @@ import { isIncidentType } from "@/lib/incident-type";
 import { resolveUserId, touchDevice } from "@/lib/incident-ingest";
 import { requireDeviceKey } from "@/lib/device-auth";
 import { checkRateLimit, clientIp } from "@/lib/rate-limit";
+import { scheduleEmergencySms } from "@/lib/sms/schedule";
 
 // Initial incident report (IncidentRequest) — sent once when an SOS/fall
 // trigger first fires. No session required from the device, so this uses
@@ -74,6 +75,14 @@ export async function POST(req: Request) {
   if (error) {
     console.error("POST /api/incidents/report failed:", error);
     return NextResponse.json({ error: "failed to create incident" }, { status: 500 });
+  }
+
+  // Queue SMS to the rider's emergency contacts. Never fail the report
+  // over this — the incident itself is already recorded.
+  try {
+    await scheduleEmergencySms(supabase, data);
+  } catch (smsError) {
+    console.error("POST /api/incidents/report: SMS scheduling failed:", smsError);
   }
 
   return NextResponse.json({ data }, { status: 201 });
