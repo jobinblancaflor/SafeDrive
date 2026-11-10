@@ -485,6 +485,19 @@
     },
 
     {
+      "method": "GET",
+      "path": "/api/incident/[id]/timeline",
+      "description": "Chronological history of one incident, oldest first: the report itself, status changes, assignment, acknowledgement, escalation steps, stop-emergency pushes (from logs), and emergency-contact SMS (from sms_outbox, numbers masked to the last 4 digits). Actor names are resolved server-side. Used by the Activity tab on /monitor/[incident_id].",
+      "auth": "session (admin or authority only)",
+      "responses": {
+        "200": { "events": [{ "id": "string", "at": "timestamptz", "kind": "created|status|assign|acknowledge|escalated|stop|sms|other", "title": "string", "detail": "string|null", "actor": "string|null", "tone": "neutral|good|warn|bad" }] },
+        "400": { "error": "invalid id" },
+        "403": { "error": "forbidden" },
+        "404": { "error": "not found" }
+      }
+    },
+
+    {
       "method": "POST",
       "path": "/api/incident/[id]/acknowledge",
       "description": "Marks the incident acknowledged by the caller if not already acknowledged. Unacknowledged, non-canceled incidents from the last 24h are escalated by pg_cron job incident-escalation (escalate_stale_incidents, every 30s): level 1 at 2 min, 2 at 4 min, 3 at 6 min, each logged as incident.escalated. Assigning or changing status also acknowledges.",
