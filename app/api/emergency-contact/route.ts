@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 const Body = z.object({
   fullname: z.string().min(1),
@@ -29,6 +30,14 @@ export async function POST(req: Request) {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "unauth" }, { status: 401 });
+
+  const allowed = await checkRateLimit(supabase, `emergency-contact:${user.id}`, {
+    max: 20,
+    windowSeconds: 3600,
+  });
+  if (!allowed) {
+    return NextResponse.json({ error: "too many requests" }, { status: 429 });
+  }
 
   const parsed = Body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return NextResponse.json({ error: "invalid body" }, { status: 400 });
