@@ -300,7 +300,7 @@
     {
       "method": "POST",
       "path": "/api/ping",
-      "description": "Send a ping to a device. Inserts a `pings` row (status=sent) and best-effort FCM push using the device's registered token.",
+      "description": "Send a ping to a device. Inserts a `pings` row (status=sent) and best-effort FCM push using the device's registered token. A failed push is saved on the row as push_error. The dashboard shows a ping still at status=sent after 60s as 'no response' (derived from ping_date, not stored) with a Retry button that sends a new ping.",
       "auth": "session (admin/authority)",
       "body": {
         "device_id": "uuid (required) — devices.id"
@@ -315,13 +315,14 @@
     {
       "method": "PATCH",
       "path": "/api/ping",
-      "description": "Device callback — marks a ping as `received`. Called by the device after processing the FCM push.",
+      "description": "Device callback — marks a ping as `received` and sets received_at on the first ack only (repeat acks are no-ops). Called by the device after processing the FCM push.",
       "auth": "device (X-Device-Key required)",
       "body": {
         "ping_id": "uuid (required)"
       },
       "responses": {
-        "200": { "data": "Ping (status='received')" }
+        "200": { "data": "Ping (status='received', received_at)" },
+        "404": { "error": "ping not found" }
       }
     },
     {
@@ -343,7 +344,7 @@
     {
       "method": "POST",
       "path": "/api/ping/location",
-      "description": "Device reports its current location for a specific ping, updating pings.lat/lng/accuracy for the row matching ping_id. The admin ping map re-centers on this location and draws accuracy as a radius circle around the marker.",
+      "description": "Device reports its current location for a specific ping, updating pings.lat/lng/accuracy and located_at for the row matching ping_id. Also counts as the ack: sets status=received and received_at if not already set. The admin ping map re-centers on this location and draws accuracy as a radius circle around the marker.",
       "auth": "device (X-Device-Key required)",
       "body": {
         "ping_id": "uuid (required)",

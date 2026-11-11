@@ -58,6 +58,19 @@ export async function POST(req: Request) {
     pushError = "device has no registered push token";
   }
 
+  // Persist the failure on the row itself so the dashboard (and anyone
+  // reloading a ?pingId= link) sees it, not just this one response.
+  let pingRow = ping;
+  if (pushError) {
+    const { data: updated } = await supabase
+      .from("pings")
+      .update({ push_error: pushError })
+      .eq("id", ping.id)
+      .select()
+      .maybeSingle();
+    if (updated) pingRow = updated;
+  }
+
   await supabase.from("logs").insert({
     actor: user.id,
     action: "ping.sent",
@@ -66,7 +79,7 @@ export async function POST(req: Request) {
     meta: { ping_id: ping.id, pushed },
   });
 
-  return NextResponse.json({ data: ping, pushed, pushError }, { status: 201 });
+  return NextResponse.json({ data: pingRow, pushed, pushError }, { status: 201 });
 }
 
 // Device acknowledges a ping — no session required from the device, same
@@ -93,16 +106,23 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: "too many requests" }, { status: 429 });
   }
 
-  const { data, error } = await supabase
+  // Only the first ack sets received_at; a repeated ack is a no-op that
+  // still returns the row.
+  const { error } = await supabase
     .from("pings")
-    .update({ status: "received" })
+    .update({ status: "received", received_at: new Date().toISOString() })
     .eq("id", parsed.data.ping_id)
-    .select()
-    .single();
-
+    .is("received_at", null);
   if (error) {
     console.error("PATCH /api/ping failed:", error);
     return NextResponse.json({ error: "failed to update ping" }, { status: 500 });
   }
+
+  const { data } = await supabase
+    .from("pings")
+    .select()
+    .eq("id", parsed.data.ping_id)
+    .maybeSingle();
+  if (!data) return NextResponse.json({ error: "ping not found" }, { status: 404 });
   return NextResponse.json({ data });
 }
