@@ -633,6 +633,18 @@
       }
     },
     {
+      "path": "/api/incident/[id]/timeline",
+      "methods": ["GET"],
+      "auth": "admin or authority only (session).",
+      "description": "Chronological history of one incident, oldest first: the report itself, status changes, assignment, acknowledgement, escalation steps, stop-emergency pushes (from logs), and emergency-contact SMS (from sms_outbox, numbers masked to the last 4 digits). Actor names are resolved server-side. Used by the Activity tab on /monitor/[incident_id].",
+      "responses": {
+        "200": "{ events: [{ id, at, kind: created|status|assign|acknowledge|escalated|stop|sms|other, title, detail, actor, tone: neutral|good|warn|bad }] }",
+        "400": "{ error:\"invalid id\" }",
+        "403": "{ error:\"forbidden\" }",
+        "404": "{ error:\"not found\" }"
+      }
+    },
+    {
       "path": "/api/incident/[id]/acknowledge",
       "methods": ["POST"],
       "auth": "admin or authority only (session).",

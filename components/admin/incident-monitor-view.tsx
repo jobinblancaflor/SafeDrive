@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { MapPin, Clock } from "lucide-react";
 import { PingMap, type MapIncident } from "@/components/map/incident-map";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,8 @@ import { createClient } from "@/lib/supabase/client";
 import { IncidentTypeBadge } from "@/components/admin/incident-type-badge";
 import { IncidentMessages, type IncidentMessage } from "@/components/admin/incident-messages";
 import type { IncidentType } from "@/lib/incident-type";
+import { IncidentTimeline } from "@/components/admin/incident-timeline";
+import type { TimelineEvent } from "@/lib/incident-timeline";
 
 export type IncidentLogRow = {
   id: string;
@@ -43,12 +45,14 @@ export function IncidentMonitorView({
   initialPoint,
   currentUserId,
   initialMessages,
+  initialTimeline,
 }: {
   incident: IncidentBundle;
   initialLogs: IncidentLogRow[];
   initialPoint: { lat: number; lng: number } | null;
   currentUserId: string;
   initialMessages: IncidentMessage[];
+  initialTimeline: TimelineEvent[];
 }) {
   const [logs, setLogs] = useState<IncidentLogRow[]>(initialLogs);
   const [point, setPoint] = useState<{ lat: number; lng: number } | null>(initialPoint);
@@ -56,6 +60,15 @@ export function IncidentMonitorView({
   const [stopPending, setStopPending] = useState(false);
   const [stopResult, setStopResult] = useState<StopResult>(null);
   const [statusPending, setStatusPending] = useState(false);
+  const [timeline, setTimeline] = useState<TimelineEvent[]>(initialTimeline);
+  const [tab, setTab] = useState<"activity" | "locations">("activity");
+
+  const refreshTimeline = useCallback(async () => {
+    const res = await fetch(`/api/incident/${incident.id}/timeline`, { cache: "no-store" });
+    if (!res.ok) return;
+    const json = (await res.json().catch(() => ({}))) as { events?: TimelineEvent[] };
+    if (json.events) setTimeline(json.events);
+  }, [incident.id]);
 
   async function changeStatus(next: IncidentStatus) {
     setStatusPending(true);
@@ -68,6 +81,7 @@ export function IncidentMonitorView({
       if (res.ok) setStatus(next);
     } finally {
       setStatusPending(false);
+      void refreshTimeline();
     }
   }
 
@@ -126,6 +140,9 @@ export function IncidentMonitorView({
         (payload) => {
           const row = payload.new as { status?: IncidentStatus };
           if (row.status) setStatus(row.status);
+          // Assignment, acknowledgement and escalation all update this
+          // row too, including ones made by other staff or the cron job.
+          void refreshTimeline();
         },
       )
       .subscribe();
@@ -133,7 +150,7 @@ export function IncidentMonitorView({
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [incident.id, incident.device]);
+  }, [incident.id, incident.device, refreshTimeline]);
 
   async function onStop() {
     setStopPending(true);
@@ -156,6 +173,7 @@ export function IncidentMonitorView({
       setStopResult({ kind: "error", message: "Network error" });
     } finally {
       setStopPending(false);
+      void refreshTimeline();
     }
   }
 
@@ -263,13 +281,28 @@ export function IncidentMonitorView({
               initialMessages={initialMessages}
             />
           </div>
-          <div className="border-b px-4 py-3">
-            <p className="text-sm font-semibold">Incident Logs</p>
-            <p className="text-xs text-slate-500">
-              {logs.length} record{logs.length === 1 ? "" : "s"}, newest first
-            </p>
+          <div className="flex border-b text-sm" role="tablist">
+            {(["activity", "locations"] as const).map((t) => (
+              <button
+                key={t}
+                type="button"
+                role="tab"
+                aria-selected={tab === t}
+                onClick={() => setTab(t)}
+                className={`flex-1 px-4 py-2.5 font-medium transition-colors ${
+                  tab === t
+                    ? "border-b-2 border-primary text-primary"
+                    : "text-slate-500 hover:text-slate-700"
+                }`}
+              >
+                {t === "activity" ? `Activity (${timeline.length})` : `Locations (${logs.length})`}
+              </button>
+            ))}
           </div>
           <div className="flex-1 overflow-auto">
+            {tab === "activity" ? (
+              <IncidentTimeline events={timeline} />
+            ) : (
             <Table>
               <TableHeader>
                 <TableRow>
@@ -294,6 +327,7 @@ export function IncidentMonitorView({
                 ))}
               </TableBody>
             </Table>
+            )}
           </div>
         </div>
       </aside>
