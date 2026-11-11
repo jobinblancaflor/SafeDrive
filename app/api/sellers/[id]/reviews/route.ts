@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 const Body = z.object({
   rating: z.number().int().min(1).max(5),
@@ -18,6 +19,14 @@ export async function POST(req: Request, ctx: { params: { id: string } }) {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "unauth" }, { status: 401 });
+
+  const allowed = await checkRateLimit(supabase, `seller-review:${user.id}`, {
+    max: 10,
+    windowSeconds: 3600,
+  });
+  if (!allowed) {
+    return NextResponse.json({ error: "too many requests" }, { status: 429 });
+  }
 
   const { data: profile } = await supabase
     .from("profiles")

@@ -25,7 +25,11 @@
     "/api/ping/location": "30 requests / 60s per client IP",
     "/api/chat": "20 requests / 300s per client IP",
     "/api/contact": "5 requests / 3600s per client IP",
-    "/api/newsletter": "5 requests / 3600s per client IP"
+    "/api/newsletter": "5 requests / 3600s per client IP",
+    "/api/seller-inquiries": "5 requests / 3600s per user",
+    "/api/sellers/{id}/reviews": "10 requests / 3600s per user",
+    "/api/emergency-contact (POST)": "20 requests / 3600s per user",
+    "/api/geocode": "30 requests / 60s per user"
   },
   "commonErrors": {
     "400": "Validation failed — body did not match the Zod schema. Body includes an `issues` array with details on most routes.",
@@ -480,6 +484,19 @@
       "responses": {
         "200": { "ok": true, "seller": { "user_id": "uuid", "verification_status": "string", "verification_note": "string|null", "verified_at": "timestamptz|null" } },
         "400": { "error": "invalid body | A reason is required when rejecting." },
+        "403": { "error": "forbidden" },
+        "404": { "error": "not found" }
+      }
+    },
+
+    {
+      "method": "GET",
+      "path": "/api/incident/[id]/timeline",
+      "description": "Chronological history of one incident, oldest first: the report itself, status changes, assignment, acknowledgement, escalation steps, stop-emergency pushes (from logs), and emergency-contact SMS (from sms_outbox, numbers masked to the last 4 digits). Actor names are resolved server-side. Used by the Activity tab on /monitor/[incident_id].",
+      "auth": "session (admin or authority only)",
+      "responses": {
+        "200": { "events": [{ "id": "string", "at": "timestamptz", "kind": "created|status|assign|acknowledge|escalated|stop|sms|other", "title": "string", "detail": "string|null", "actor": "string|null", "tone": "neutral|good|warn|bad" }] },
+        "400": { "error": "invalid id" },
         "403": { "error": "forbidden" },
         "404": { "error": "not found" }
       }

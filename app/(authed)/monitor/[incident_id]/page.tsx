@@ -5,6 +5,7 @@ import { IncidentMonitorView, type IncidentLogRow } from "@/components/admin/inc
 import type { IncidentMessage } from "@/components/admin/incident-messages";
 import type { IncidentType } from "@/lib/incident-type";
 import type { IncidentStatus } from "@/lib/supabase/types";
+import { loadIncidentTimeline } from "@/lib/incident-timeline";
 
 export default async function MonitorIncidentPage({
   params,
@@ -72,10 +73,13 @@ export default async function MonitorIncidentPage({
     .limit(200);
   const initialMessages: IncidentMessage[] = messages ?? [];
 
+  const initialTimeline = await loadIncidentTimeline(supabase, params.incident_id);
+
   return (
     <IncidentMonitorView
       currentUserId={staffProfile.id}
       initialMessages={initialMessages}
+      initialTimeline={initialTimeline}
       incident={{
         id: incident.id,
         status: incident.status as IncidentStatus,
